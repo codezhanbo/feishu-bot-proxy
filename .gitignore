@@ -1,0 +1,43 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+
+### VS Code ###
+.vscode/
+
+### 含真实 webhook / 密钥的本地配置 —— 绝不提交 ###
+application-local.yml
+application-prod.yml
+bots.yml
+*.local.yml
+
+### 消息留档 —— 真实流量，而且只增不减 ###
+data/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,51 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: feishu-bot-proxy
+
+feishu:
+  # POST /webhook（路径里不带 botKey）走这个机器人。可选。
+  default-bot: dev-group
+
+  # 非空 => 调用方必须带上匹配的 X-Api-Token 请求头。留空 => 不鉴权（内网默认）。
+  access-token: ""
+
+  connect-timeout-ms: 3000
+  read-timeout-ms: 5000
+  max-body-bytes: 20480          # 飞书拒收超过 20KB 的报文
+
+  retry:
+    max-attempts: 3
+    initial-backoff-ms: 500
+    multiplier: 2.0
+    max-backoff-ms: 5000
+    retryable-codes: [9499, 19003, 11232]   # 11232 是租户级限流，整点/半点高发
+
+  rate-limit:
+    enabled: true
+    per-minute: 100              # 飞书限制，按机器人计
+    per-second: 5                # 飞书限制，按机器人计
+    wait-timeout-ms: 1000        # 等令牌最多阻塞这么久，超时就返回 429
+
+  store:
+    enabled: true
+    path: ./data/feishu-proxy.db   # 每条入站消息都追加写入，永久保留，从不清理
+
+  bots:
+    dev-group:
+      # 生产环境建议用环境变量：${FEISHU_DEV_WEBHOOK}
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/7f17d499-4491-46cd-b67e-daed865b5d0b
+      secret: ""                 # 群「安全设置 - 加签」的密钥；填上之后中转服务会自动加签
+      enabled: true
+
+    ops-group:
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE-ME-TOO
+      secret: ""
+      enabled: true
+      keywords: []               # 仅用于拼出一条能通过校验的 POST /admin/test/{botKey} 消息
+
+logging:
+  level:
+    com.example.feishuproxy: INFO

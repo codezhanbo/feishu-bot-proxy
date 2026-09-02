@@ -1,0 +1,33 @@
+package com.example.feishuproxy.config;
+
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.web.client.DefaultResponseErrorHandler;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.IOException;
+import java.time.Duration;
+
+@Configuration
+public class HttpClientConfig {
+
+    @Bean
+    public RestTemplate feishuRestTemplate(RestTemplateBuilder builder, FeishuProperties properties) {
+        RestTemplate restTemplate = builder
+                .setConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
+                .setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
+                .build();
+
+        // 我们把飞书的响应报文原样回传给调用方，所以 4xx/5xx 不能抛异常：
+        // 默认处理器会吞掉我们本应转发出去的报文。
+        restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
+            @Override
+            public boolean hasError(ClientHttpResponse response) throws IOException {
+                return false;
+            }
+        });
+        return restTemplate;
+    }
+}

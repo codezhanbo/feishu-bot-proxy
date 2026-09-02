@@ -1,0 +1,440 @@
+package com.example.feishuproxy.store;
+
+import com.example.feishuproxy.config.FeishuProperties;
+import com.example.feishuproxy.core.GameStatsParser;
+import com.example.feishuproxy.core.MessagePreview;
+import com.example.feishuproxy.model.GameStats;
+import com.example.feishuproxy.model.MessageLog;
+import com.example.feishuproxy.model.SendResult;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PreDestroy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 每条入站消息都追加写进一个 SQLite 文件，永不清理。
+ * <p>
+ * 一个请求一行。一个请求只面向一个群组，但 {@code bot_keys} 和 {@code results} 两列保持
+ * 复数形态：广播功能移除之前写入的行包含多个目标，而这些行仍由同一套代码查询。
+ * <p>
+ * 一个长生命周期的 {@link Connection}，由本对象的监视器守护。sqlite-jdbc 并不承诺线程安全的
+ * 连接，而单一写入者意味着 {@code SQLITE_BUSY} 永远不会发生——也就无需 busy_timeout。
+ * 这里的流量受飞书自身每机器人 5 req/s 的限制，所以串行化没有成本。
+ * <p>
+ * <strong>持久化绝不能破坏中转。</strong>任何意外——文件打不开、杀毒软件占着锁、
+ * 关闭时连接已被关掉——都只是让本组件降级，转发不受影响。因此 {@link #record} 不抛异常。
+ */
+@Component
+public class MessageLogRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(MessageLogRepository.class);
+
+    private static final String DDL =
+            "CREATE TABLE IF NOT EXISTS message_log ("
+                    + "id INTEGER PRIMARY KEY,"          // rowid 别名；只追加写入，所以不用 AUTOINCREMENT
+                    + "created_at INTEGER NOT NULL,"
+                    + "create_datetime TEXT,"             // created_at 的可读形式，纯展示；旧行该列为 NULL
+                    + "bot_keys TEXT NOT NULL,"
+                    + "msg_type TEXT,"
+                    + "title TEXT,"
+                    + "text_preview TEXT,"
+                    + "body TEXT NOT NULL,"
+                    + "body_bytes INTEGER NOT NULL,"
+                    + "client_ip TEXT,"
+                    + "success INTEGER NOT NULL,"
+                    + "code INTEGER NOT NULL,"
+                    + "msg TEXT,"
+                    + "results TEXT,"
+                    + "stat_date TEXT,"                 // 战报自称的日期，取自标题，不是落库时间
+                    + "survival_level INTEGER,"
+                    + "exp_gained INTEGER,"
+                    + "bp_gained INTEGER,"
+                    + "duration TEXT)";
+
+    /**
+     * 这些列都是后加的，所以还得能补进已经存在的库。
+     * {@code CREATE TABLE IF NOT EXISTS} 对旧文件是空操作，不会补列。
+     */
+    private static final String[] MIGRATED_COLUMNS = {
+            "stat_date TEXT",
+            "survival_level INTEGER",
+            "exp_gained INTEGER",
+            "bp_gained INTEGER",
+            "duration TEXT",
+            "create_datetime TEXT",
+    };
+
+    /**
+     * 往回找「上一条战报」时最多翻这么多条 post。
+     * 用有限回看而不是一路扫到底，是为了不让每次写入退化成全表扫描；
+     * 代价是同一个群里连续来 10 条以上非战报的 post 时，增量链会断在那一行。
+     */
+    private static final int LOOKBACK = 10;
+
+    private static final String PREVIOUS_POSTS =
+            "SELECT body FROM message_log WHERE (','||bot_keys||',') LIKE ? ESCAPE '\\'"
+                    + " AND msg_type = 'post' ORDER BY id DESC LIMIT " + LOOKBACK;
+
+    private static final String INSERT =
+            "INSERT INTO message_log (created_at, create_datetime, bot_keys, msg_type, title, text_preview, body,"
+                    + " body_bytes, client_ip, success, code, msg, results,"
+                    + " stat_date, survival_level, exp_gained, bp_gained, duration)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+    private static final String COLUMNS =
+            "id, created_at, create_datetime, bot_keys, msg_type, title, text_preview, body, body_bytes, client_ip,"
+                    + " success, code, msg, results,"
+                    + " stat_date, survival_level, exp_gained, bp_gained, duration";
+
+    /** 单页 /admin/logs 的上限，避免过大的 limit 把整张表拉进内存。 */
+    public static final int MAX_PAGE = 200;
+
+    private final ObjectMapper objectMapper;
+
+    /** 请求体的截断上限与中转服务拒转发的阈值一致。 */
+    private final int maxStoredBodyBytes;
+
+    /** 廉价的 COUNT(*)：这张表只增不减，全表扫描会一直占着写锁。 */
+    private final AtomicLong total = new AtomicLong();
+
+    private volatile Connection connection;
+    private volatile boolean enabled;
+
+    public MessageLogRepository(FeishuProperties properties, ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+        this.maxStoredBodyBytes = Math.max(1, properties.getMaxBodyBytes());
+
+        if (!properties.getStore().isEnabled()) {
+            log.info("message store disabled by configuration");
+            return;
+        }
+        try {
+            open(properties.getStore().getPath());
+            this.enabled = true;
+        } catch (Exception e) {
+            log.error("message store unavailable, messages will not be persisted (path={})",
+                    properties.getStore().getPath(), e);
+        }
+    }
+
+    private void open(String configuredPath) throws SQLException, java.io.IOException {
+        Path path = Paths.get(configuredPath).toAbsolutePath().normalize();
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());   // SQLite 不会自己创建目录
+        }
+        // JDBC URL 里的反斜杠不可移植；Windows 上 SQLite 用正斜杠就没问题。
+        Connection opened = DriverManager.getConnection("jdbc:sqlite:" + path.toString().replace('\\', '/'));
+        try (Statement statement = opened.createStatement()) {
+            statement.execute("PRAGMA journal_mode=WAL");
+            statement.execute("PRAGMA synchronous=NORMAL");
+            statement.execute(DDL);
+        }
+        migrate(opened);
+        try (Statement statement = opened.createStatement();
+             ResultSet rs = statement.executeQuery("SELECT COUNT(*) FROM message_log")) {
+            total.set(rs.next() ? rs.getLong(1) : 0L);
+        }
+        this.connection = opened;
+        log.info("message store ready at {} ({} rows)", path, total.get());
+    }
+
+    /**
+     * 把后加的列补进早于该功能建立的库。新库由 DDL 一次建全，旧库走这里，两条路收敛到同一 schema。
+     * <p>
+     * 已有的行不回填。统计列描述的是写入当时的增量，事后无从推断；{@code create_datetime}
+     * 本可由 {@code created_at} 推得，但为与统计列保持一致也不回填，旧行的该列为 NULL。
+     */
+    private void migrate(Connection opened) throws SQLException {
+        Set<String> existing = new HashSet<>();
+        try (Statement statement = opened.createStatement();
+             ResultSet rs = statement.executeQuery("PRAGMA table_info(message_log)")) {
+            while (rs.next()) {
+                existing.add(rs.getString("name"));
+            }
+        }
+        for (String column : MIGRATED_COLUMNS) {
+            String name = column.substring(0, column.indexOf(' '));
+            if (existing.contains(name)) {
+                continue;
+            }
+            try (Statement statement = opened.createStatement()) {
+                statement.execute("ALTER TABLE message_log ADD COLUMN " + column);
+            }
+            log.info("message store migrated: added column {}", name);
+        }
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public long total() {
+        return total.get();
+    }
+
+    /**
+     * 持久化一个请求。绝不抛异常——这里的失败绝不能改变已经答复给调用方的结果。
+     *
+     * @param botKeys 解析出的目标机器人列表，请求尚未走到那一步时为空
+     * @param body    调用方的原始字节，加签之前的内容
+     * @param parsed  同一份请求体解析后的结果，无法解析时为 null
+     * @param code    就是答复给调用方的那个 code
+     * @param results 每个尝试过的机器人对应一条；在分派之前就被拒掉的请求则为空
+     */
+    public void record(List<String> botKeys, byte[] body, JsonNode parsed, String clientIp,
+                       int code, String msg, List<SendResult> results) {
+        if (!enabled || body == null || body.length == 0) {
+            return;
+        }
+        try {
+            insert(botKeys, body, parsed, clientIp, code, msg, results);
+        } catch (Exception e) {
+            log.warn("failed to persist message (botKeys={} code={})", botKeys, code, e);
+        }
+    }
+
+    private MessageLog build(List<String> botKeys, byte[] body, JsonNode parsed, String clientIp,
+                             int code, String msg, List<SendResult> results, GameStats stats) {
+        // 超长请求体会被 413 拒掉，但仍然要留档，所以得限制真正落盘的量：这张表永不清理，
+        // 不能让一次恶意 POST 就把磁盘写满。
+        byte[] stored = body.length > maxStoredBodyBytes ? Arrays.copyOf(body, maxStoredBodyBytes) : body;
+
+        boolean success = !results.isEmpty();
+        ArrayNode items = objectMapper.createArrayNode();
+        for (SendResult result : results) {
+            success &= result.isSuccess();
+            ObjectNode item = items.addObject();
+            item.put("botKey", result.getBotKey());
+            item.put("success", result.isSuccess());
+            item.put("code", result.getCode());
+            item.put("msg", result.getMsg());
+            item.put("attempts", result.getAttempts());
+            item.put("costMs", result.getCostMs());
+        }
+
+        long now = System.currentTimeMillis();
+        return new MessageLog(0L, now, MessageLog.formatDateTime(now), String.join(",", botKeys),
+                parsed == null ? null : parsed.path("msg_type").asText(null),
+                MessagePreview.title(parsed), MessagePreview.preview(parsed),
+                new String(stored, StandardCharsets.UTF_8), body.length, clientIp,
+                success, code, msg, items, stats);
+    }
+
+    /**
+     * 查上一条战报、算差分、写入——三件事必须在同一把锁内完成，否则两个并发请求会读到同一条
+     * 「上一条」，各自算出重复的增量。
+     */
+    private synchronized void insert(List<String> botKeys, byte[] body, JsonNode parsed, String clientIp,
+                                     int code, String msg, List<SendResult> results) throws SQLException {
+        Connection current = connection;
+        if (current == null) {
+            return;
+        }
+
+        GameStatsParser.Snapshot snapshot = GameStatsParser.parse(parsed);
+        GameStats stats = snapshot == null
+                ? null : GameStatsParser.delta(snapshot, previousSnapshot(current, botKeys));
+
+        MessageLog record = build(botKeys, body, parsed, clientIp, code, msg, results, stats);
+        try (PreparedStatement statement = current.prepareStatement(INSERT)) {
+            statement.setLong(1, record.getEpochMillis());
+            statement.setString(2, record.getCreateDatetime());
+            statement.setString(3, record.getBotKeys());
+            statement.setString(4, record.getMsgType());
+            statement.setString(5, record.getTitle());
+            statement.setString(6, record.getTextPreview());
+            statement.setString(7, record.getBody());
+            statement.setInt(8, record.getBodyBytes());
+            statement.setString(9, record.getClientIp());
+            statement.setInt(10, record.isSuccess() ? 1 : 0);
+            statement.setInt(11, record.getCode());
+            statement.setString(12, record.getMsg());
+            statement.setString(13, record.getResults() == null ? null : record.getResults().toString());
+            statement.setString(14, stats == null ? null : stats.getStatDate());
+            setNullable(statement, 15, stats == null ? null : stats.getSurvivalLevel());
+            setNullable(statement, 16, stats == null ? null : stats.getExpGained());
+            setNullable(statement, 17, stats == null ? null : stats.getBpGained());
+            statement.setString(18, stats == null ? null : stats.getDuration());
+            statement.executeUpdate();
+        }
+        total.incrementAndGet();
+    }
+
+    private static void setNullable(PreparedStatement statement, int index, Number value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.INTEGER);
+        } else {
+            statement.setLong(index, value.longValue());
+        }
+    }
+
+    /**
+     * 同 botKey 的上一条战报。往回翻最多 {@link #LOOKBACK} 条 post，取第一条解析得出快照的——
+     * 中间可能夹着 {@code /admin/test} 发的 text 消息或畸形请求。
+     * <p>
+     * 发送失败的战报同样算数：游戏侧的累计值已经涨上去了，跳过它会让下一条的增量翻倍。
+     */
+    private GameStatsParser.Snapshot previousSnapshot(Connection current, List<String> botKeys) {
+        if (botKeys.size() != 1) {
+            // 没有目标（发送前就被拒），或者是遗留的多目标行——都无从判断该跟谁比。
+            return null;
+        }
+        try (PreparedStatement statement = current.prepareStatement(PREVIOUS_POSTS)) {
+            statement.setString(1, "%," + escapeLike(botKeys.get(0)) + ",%");
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    GameStatsParser.Snapshot snapshot = GameStatsParser.parse(readJson(rs.getString("body")));
+                    if (snapshot != null) {
+                        return snapshot;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("failed to look up the previous stats report (botKeys={})", botKeys, e);
+        }
+        return null;
+    }
+
+    private JsonNode readJson(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(raw);
+        } catch (Exception e) {
+            // 存进去的可能本来就不是 JSON（被拒的畸形请求也会留档），不是异常情况。
+            return null;
+        }
+    }
+
+    /**
+     * 最新在前。故意按主键而非 {@code created_at} 排序：这张表只追加写入，
+     * 主键本身就是时间序，无需额外索引。
+     *
+     * @param botKey 按单个目标过滤，null 表示不限
+     * @param success 按结果过滤，null 表示不限
+     */
+    public synchronized List<MessageLog> query(String botKey, Boolean success, int limit, int offset) {
+        List<MessageLog> out = new ArrayList<>();
+        Connection current = connection;
+        if (current == null) {
+            return out;
+        }
+
+        StringBuilder sql = new StringBuilder("SELECT ").append(COLUMNS).append(" FROM message_log");
+        if (botKey != null) {
+            // 对于「一个请求可指向多个群组」时代遗留的行，bot_keys 用逗号拼接，
+            // 所以两侧都包上逗号，避免把 "ops-group" 里的 "ops" 也匹配进去。
+            sql.append(" WHERE (','||bot_keys||',') LIKE ? ESCAPE '\\'");
+        } else {
+            sql.append(" WHERE 1=1");
+        }
+        if (success != null) {
+            sql.append(" AND success = ?");
+        }
+        sql.append(" ORDER BY id DESC LIMIT ? OFFSET ?");
+
+        try (PreparedStatement statement = current.prepareStatement(sql.toString())) {
+            int index = 1;
+            if (botKey != null) {
+                statement.setString(index++, "%," + escapeLike(botKey) + ",%");
+            }
+            if (success != null) {
+                statement.setInt(index++, success ? 1 : 0);
+            }
+            statement.setInt(index++, Math.max(1, Math.min(limit, MAX_PAGE)));
+            statement.setInt(index, Math.max(0, offset));
+
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    out.add(read(rs));
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("failed to query message log", e);
+        }
+        return out;
+    }
+
+    /**
+     * botKey 是查询参数，直接拼进 LIKE 模式的话 {@code %} 和 {@code _} 会被当成通配符——
+     * {@code ?botKey=%} 就能捞出整张表。反斜杠必须最先转义，否则会把后面补上的转义符再转义一次。
+     */
+    private static String escapeLike(String raw) {
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private MessageLog read(ResultSet rs) throws SQLException {
+        String results = rs.getString("results");
+        JsonNode parsedResults = null;
+        if (results != null) {
+            try {
+                // 必须重新解析：把原始字符串直接交给 Jackson 会被转义成 "[{...}]"。
+                parsedResults = objectMapper.readTree(results);
+            } catch (Exception e) {
+                log.warn("unreadable results column on message_log id={}", rs.getLong("id"), e);
+            }
+        }
+        return new MessageLog(rs.getLong("id"), rs.getLong("created_at"), rs.getString("create_datetime"),
+                rs.getString("bot_keys"), rs.getString("msg_type"), rs.getString("title"),
+                rs.getString("text_preview"), rs.getString("body"), rs.getInt("body_bytes"),
+                rs.getString("client_ip"), rs.getInt("success") != 0, rs.getInt("code"),
+                rs.getString("msg"), parsedResults, readStats(rs));
+    }
+
+    /** 五列全空说明这行不是战报（也可能是加列之前写入的旧行），返回 null 而不是一个空壳对象。 */
+    private static GameStats readStats(ResultSet rs) throws SQLException {
+        Integer level = nullableInt(rs, "survival_level");
+        Long exp = nullableLong(rs, "exp_gained");
+        Long bp = nullableLong(rs, "bp_gained");
+        GameStats stats = new GameStats(rs.getString("stat_date"), level, exp, bp, rs.getString("duration"));
+        return stats.isEmpty() ? null : stats;
+    }
+
+    private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
+        int value = rs.getInt(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static Long nullableLong(ResultSet rs, String column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    @PreDestroy
+    public synchronized void close() {
+        enabled = false;
+        Connection current = connection;
+        connection = null;
+        if (current == null) {
+            return;
+        }
+        try {
+            current.close();
+        } catch (SQLException e) {
+            log.warn("failed to close message store", e);
+        }
+    }
+}

@@ -1,0 +1,38 @@
+feishu:
+  default-bot: plain
+  access-token: ""
+  connect-timeout-ms: 1000
+  read-timeout-ms: 2000
+  max-body-bytes: 20480
+
+  retry:
+    max-attempts: 2
+    initial-backoff-ms: 5
+    max-backoff-ms: 20
+
+  # 限流由 BotRateLimiterTest 和 FeishuSenderTest 覆盖，这里关掉免得碍事。
+  rate-limit:
+    enabled: false
+
+  # store.path 由 @DynamicPropertySource 在运行时注入，指向一个临时文件。
+  store:
+    enabled: true
+
+  # webhook 地址由 @DynamicPropertySource 在运行时注入，指向 MockFeishuServer。
+  bots:
+    plain:
+      secret: ""
+      enabled: true
+    signed:
+      secret: test-secret
+      enabled: true
+    second:
+      secret: ""
+      enabled: true
+    paused:
+      secret: ""
+      enabled: false
+
+logging:
+  level:
+    com.example.feishuproxy: WARN
