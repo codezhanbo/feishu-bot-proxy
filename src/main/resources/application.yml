@@ -1,12 +1,19 @@
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 8h            # 后台登录会话时长
+      cookie:
+        http-only: true      # JSESSIONID 不让前端脚本读取
+        same-site: lax
 
 spring:
   application:
     name: feishu-bot-proxy
 
 feishu:
-  # POST /webhook（路径里不带 botKey）走这个机器人。可选。
+  # POST /webhook（路径里不带 botKey）走哪个机器人。
+  # 与 feishu.bots 一样，只是首次启动的种子：bot 表为空时导入一次，此后以数据库为准。
   default-bot: dev-group
 
   # 非空 => 调用方必须带上匹配的 X-Api-Token 请求头。留空 => 不鉴权（内网默认）。
@@ -36,6 +43,12 @@ feishu:
     username: ${FEISHU_STORE_USERNAME:}
     password: ${FEISHU_STORE_PASSWORD:}
 
+  # 后台管理界面（/login.html、/console.html）的登录账号
+  admin:
+    username: ${FEISHU_ADMIN_USERNAME:admin}
+    password: ${FEISHU_ADMIN_PASSWORD:}   # 留空 => 后台登录不可用
+
+  # 首次启动种子：bot 表为空时自动导入一次，此后请到后台「Bot 配置」页增删改。
   bots:
     dev-group:
       # 生产环境建议用环境变量：${FEISHU_DEV_WEBHOOK}

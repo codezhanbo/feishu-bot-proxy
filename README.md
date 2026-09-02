@@ -33,11 +33,15 @@ Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-star
 
 ## 配置
 
+> **机器人现在存在数据库里**，在后台「Bot 配置」页管理。下面 yaml 里的 `feishu.bots` 与
+> `feishu.default-bot` **只作为首次启动的种子**——`bot` 表为空时自动导入一次，之后以数据库为准，
+> 改 yaml 不再生效。要增删改机器人，请登录后台到 `/bots.html`。
+
 `src/main/resources/application.yml` 里的 `feishu.bots`，key 就是 URL 里的 `{botKey}`：
 
 ```yaml
 feishu:
-  default-bot: dev-group        # POST /webhook（不带 botKey）时用哪个群
+  default-bot: dev-group        # POST /webhook（不带 botKey）时用哪个群（首启种子）
   access-token: ""              # 非空则要求调用方带 X-Api-Token 头；空=不鉴权
   max-body-bytes: 20480         # 飞书上限 20KB
 
@@ -198,6 +202,32 @@ curl -X POST http://localhost:8080/webhook/dev-group \
 
 > Windows 的 Git Bash 里，`-d '{"...":"..."}'` 这种行内 JSON 会被参数转换搞坏，全部报 `40001`。用 `--data-binary @body.json` 从文件传。
 
+## 后台管理界面
+
+内置三个页面，走**会话登录**（账号密码），与 webhook 的 `X-Api-Token` 完全独立：
+
+| 路径 | 说明 |
+|---|---|
+| `/login.html` | 登录页，登录成功后进菜单页 |
+| `/home.html` | 菜单页（导航），列出各功能入口 |
+| `/console.html` | 查询 `message_log`，支持按 botKey / 成功失败 / 关键字 / 时间范围过滤 + 分页，点行看详情 |
+| `/bots.html` | **机器人配置**：增删改 bot、设默认机器人，改完即时生效（无需重启） |
+
+登录账号由配置注入，生产用环境变量：
+
+```yaml
+feishu:
+  admin:
+    username: ${FEISHU_ADMIN_USERNAME:admin}
+    password: ${FEISHU_ADMIN_PASSWORD:}   # 留空 => 后台登录不可用
+```
+
+- 部署时记得在 Render 上配 `FEISHU_ADMIN_USERNAME` / `FEISHU_ADMIN_PASSWORD`，否则登录页会报「admin password not configured」。
+- 会话存在内存里（默认 8 小时），单实例没问题；双实例各管各的会话，要共享会话再单独说。
+- 机器人配置同样在内存里缓存：后台改完只 reload 处理该请求的实例。双实例部署时，改了机器人
+  要等另一台重启（或后续再加轮询同步）。
+- 根路径 `/` 会自动跳到登录页。
+
 ## 测试
 
 ```bash
@@ -212,7 +242,8 @@ mvn test    # 88 个用例
 - **统计（`/admin/stats`）仍然在内存里，重启清零。** 只有消息本身是持久的。
 - **重试是 at-least-once。** 网络超时重试可能造成飞书其实已收到、中转判为失败又重发的重复消息。告警通知场景一般可接受。
 - **中转服务是单点**：它挂了所有群都发不出去。生产建议双实例 + 负载均衡，但注意：**限流是每实例本地计数**，N 个实例的实际上限是 N × `per-minute`，要相应下调；消息库是共享的一张 Postgres 表，`/admin/logs` 看得到全部，但**战报差分不是跨实例原子的**——两个实例并发写同一群时可能读到同一条「上一条」，算重增量。
-- 改配置需要重启。
+- **改机器人配置不用重启**（后台 `/bots.html` 改完即时生效）；但 retry / rate-limit / access-token 等
+  `feishu.*` 下的非 bot 配置仍走 yaml/env，改动仍需重启。
 
 ## 安全
 

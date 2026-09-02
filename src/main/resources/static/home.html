@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>首页 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .welcome { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px; }
+  .welcome h1 { margin:0 0 8px; font-size:22px; }
+  .welcome p { margin:0 0 20px; color:var(--muted); font-size:14px; }
+  .shortcuts { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; }
+  .shortcut { display:block; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px;
+              text-decoration:none; color:var(--text); }
+  .shortcut:hover { border-color:var(--accent); box-shadow:0 4px 14px rgba(37,99,235,.10); }
+  .shortcut .icon { font-size:24px; }
+  .shortcut .title { font-size:15px; font-weight:600; margin:10px 0 4px; }
+  .shortcut .desc { font-size:13px; color:var(--muted); line-height:1.5; }
+</style>
+</head>
+<body data-page="home">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="welcome">
+        <h1>feishu-bot-proxy 控制台</h1>
+        <p>飞书自定义机器人 webhook 中转服务。左侧菜单进入各功能模块。</p>
+        <div class="shortcuts">
+          <a class="shortcut" href="/console.html">
+            <div class="icon">📋</div>
+            <div class="title">消息查询</div>
+            <div class="desc">查询 message_log 历史消息，按 botKey / 结果 / 关键字 / 时间范围过滤</div>
+          </a>
+          <a class="shortcut" href="/bots.html">
+            <div class="icon">🤖</div>
+            <div class="title">Bot 配置</div>
+            <div class="desc">机器人 webhook / 加签密钥 / 停启用 / 关键词，改完即时生效</div>
+          </a>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/layout.js"></script>
+</body>
+</html>

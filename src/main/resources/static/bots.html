@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot 配置 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .row select, .row input { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .row select:focus, .row input:focus { outline:none; border-color:var(--accent); }
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .form .full { grid-column:1 / -1; }
+  .form label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .form input[type=text], .form input[type=url] { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .form input:focus { outline:none; border-color:var(--accent); }
+  .form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--text); }
+  .form-buttons { grid-column:1 / -1; display:flex; gap:10px; align-items:center; }
+  #msg { min-height:18px; font-size:13px; color:var(--bad); }
+</style>
+</head>
+<body data-page="bots">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="panel">
+        <h2>默认机器人</h2>
+        <div class="row">
+          <span class="hint">POST /webhook（不带 botKey）时发往：</span>
+          <select id="default-select"></select>
+          <button class="primary" id="save-default">保存</button>
+          <span class="hint" id="default-saved"></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0;">机器人列表</h2>
+          <button class="primary" id="new">新建 Bot</button>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr><th>botKey</th><th>webhook</th><th>加签</th><th>状态</th><th>关键词</th><th></th></tr>
+            </thead>
+            <tbody id="tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="form-panel" hidden>
+        <h2 id="form-title">新建 Bot</h2>
+        <div class="form">
+          <label>botKey<input type="text" id="f-botKey" placeholder="如 dev-group"></label>
+          <label>webhook<input type="url" id="f-webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."></label>
+          <label>加签密钥<span class="hint" id="secret-hint">群「安全设置 - 加签」的 secret</span>
+            <input type="text" id="f-secret" autocomplete="off"></label>
+          <label>关键词（逗号分隔）<input type="text" id="f-keywords" placeholder="告警, 构建失败"></label>
+          <label class="check"><input type="checkbox" id="f-enabled" checked> 启用（停用后 webhook 返回 403）</label>
+          <label class="check" id="clear-wrap" hidden><input type="checkbox" id="f-clearSecret"> 清除现有密钥</label>
+          <div class="form-buttons">
+            <button class="primary" id="save">保存</button>
+            <button class="ghost" id="cancel">取消</button>
+            <span id="msg"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+<script>
+  let bots = [];
+  let editing = null;   // 正在编辑的 botKey，null 表示新建
+
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function showMsg(text) { $('msg').textContent = text || ''; }
+
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    if (res.status === 401) { location.replace('/login.html'); throw new Error('unauthorized'); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      const e = new Error((j && j.msg) || ('HTTP ' + res.status));
+      e.code = (j && j.code) || res.status;
+      throw e;
+    }
+    return j;
+  }
+
+  async function load() {
+    const [list, settings] = await Promise.all([
+      api('/console/bots').catch(() => null),
+      api('/console/settings').catch(() => null),
+    ]);
+    bots = (list && list.bots) || [];
+    renderTable();
+    renderDefault((settings && settings.defaultBot) || '');
+  }
+
+  function renderTable() {
+    const tbody = $('tbody');
+    if (!bots.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">还没有机器人，点「新建 Bot」添加</td></tr>';
+      return;
+    }
+    tbody.innerHTML = bots.map(b => {
+      const secretBadge = b.hasSecret
+        ? '<span class="badge ok">已加签</span>' : '<span class="badge off">无</span>';
+      const statusBadge = b.enabled
+        ? '<span class="badge ok">启用</span>' : '<span class="badge bad">停用</span>';
+      const keywords = (b.keywords || []).join(', ');
+      return '<tr>' +
+        '<td>' + esc(b.botKey) + '</td>' +
+        '<td class="clip" title="' + esc(b.webhook) + '">' + esc(b.webhookMasked) + '</td>' +
+        '<td>' + secretBadge + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td class="clip">' + esc(keywords) + '</td>' +
+        '<td><button class="ghost" data-edit="' + esc(b.botKey) + '">编辑</button> ' +
+        '<button class="danger" data-del="' + esc(b.botKey) + '">删除</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderDefault(defaultBot) {
+    const sel = $('default-select');
+    sel.innerHTML = '<option value="">（无）</option>' + bots.map(b =>
+      '<option value="' + esc(b.botKey) + '"' + (b.botKey === defaultBot ? ' selected' : '') + '>' +
+      esc(b.botKey) + '</option>').join('');
+  }
+
+  function openForm(bot) {
+    editing = bot ? bot.botKey : null;
+    $('form-panel').hidden = false;
+    $('form-title').textContent = bot ? '编辑 ' + bot.botKey : '新建 Bot';
+    $('f-botKey').value = bot ? bot.botKey : '';
+    $('f-botKey').disabled = !!bot;
+    $('f-webhook').value = bot ? (bot.webhook || '') : '';
+    $('f-secret').value = '';
+    $('f-keywords').value = bot ? (bot.keywords || []).join(', ') : '';
+    $('f-enabled').checked = bot ? bot.enabled : true;
+    $('secret-hint').textContent = bot
+      ? '留空 = 不修改；要换成新密钥就直接填新值'
+      : '群「安全设置 - 加签」的 secret，没有就留空';
+    $('clear-wrap').hidden = !bot;
+    $('f-clearSecret').checked = false;
+    showMsg('');
+    $('form-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function closeForm() {
+    editing = null;
+    $('form-panel').hidden = true;
+  }
+
+  async function save() {
+    const botKey = $('f-botKey').value.trim();
+    const webhook = $('f-webhook').value.trim();
+    const keywords = $('f-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
+    const enabled = $('f-enabled').checked;
+    const clearSecret = $('f-clearSecret').checked;
+    const secret = $('f-secret').value;
+
+    if (!webhook) { showMsg('webhook 不能为空'); return; }
+    if (!editing && !botKey) { showMsg('botKey 不能为空'); return; }
+
+    const payload = { webhook, enabled, keywords };
+    if (editing) {
+      if (clearSecret) payload.secret = '';
+      else if (secret) payload.secret = secret;
+    } else {
+      payload.botKey = botKey;
+      payload.secret = secret;
+    }
+
+    showMsg('');
+    try {
+      await api(editing ? '/console/bots/' + encodeURIComponent(editing) : '/console/bots', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      closeForm();
+      await load();
+    } catch (e) {
+      showMsg(e.message);
+    }
+  }
+
+  async function remove(botKey) {
+    if (!confirm('确认删除 ' + botKey + ' ？删除后 /webhook/' + botKey + ' 将立即 404。')) return;
+    try {
+      await api('/console/bots/' + encodeURIComponent(botKey), { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // 事件
+  $('tbody').addEventListener('click', e => {
+    const editBtn = e.target.closest('[data-edit]');
+    const delBtn = e.target.closest('[data-del]');
+    if (editBtn) {
+      const bot = bots.find(b => b.botKey === editBtn.getAttribute('data-edit'));
+      if (bot) openForm(bot);
+    } else if (delBtn) {
+      remove(delBtn.getAttribute('data-del'));
+    }
+  });
+  $('new').addEventListener('click', () => openForm(null));
+  $('cancel').addEventListener('click', closeForm);
+  $('save').addEventListener('click', save);
+  $('save-default').addEventListener('click', async () => {
+    const v = $('default-select').value;
+    try {
+      await api('/console/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultBot: v }),
+      });
+      $('default-saved').textContent = '已保存 ✓';
+      setTimeout(() => $('default-saved').textContent = '', 2000);
+    } catch (e) {
+      $('default-saved').textContent = '保存失败：' + e.message;
+    }
+  });
+
+  load();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>

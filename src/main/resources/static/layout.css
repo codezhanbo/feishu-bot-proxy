@@ -1,0 +1,40 @@
+:root { --bg:#f5f6f8; --card:#fff; --line:#e5e7eb; --text:#1f2937; --muted:#6b7280; --accent:#2563eb;
+        --ok:#16a34a; --bad:#dc2626; --warn:#d97706; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif; color:var(--text); }
+
+/* 左侧菜单栏 + 中间内容区 */
+.layout { display:flex; min-height:100vh; }
+.sidebar { width:216px; flex-shrink:0; background:#111827; color:#cbd5e1; display:flex; flex-direction:column; }
+.sidebar .brand { padding:18px 20px; font-size:15px; font-weight:600; color:#fff; border-bottom:1px solid rgba(255,255,255,.08); }
+.sidebar nav { flex:1; padding:12px 0; }
+.sidebar nav a { display:block; padding:11px 20px; color:#cbd5e1; text-decoration:none; font-size:14px;
+                 border-left:3px solid transparent; }
+.sidebar nav a:hover { background:rgba(255,255,255,.06); color:#fff; }
+.sidebar nav a.active { background:rgba(37,99,235,.20); color:#fff; border-left-color:var(--accent); }
+.sidebar nav a .icon { margin-right:9px; }
+.sidebar .foot { padding:16px 20px; border-top:1px solid rgba(255,255,255,.08); }
+.sidebar .foot button { width:100%; padding:8px; background:rgba(255,255,255,.06); color:#e5e7eb;
+                        border:1px solid rgba(255,255,255,.12); border-radius:8px; cursor:pointer; font-size:13px; }
+.sidebar .foot button:hover { background:rgba(255,255,255,.12); }
+.content { flex:1; padding:24px; overflow:auto; }
+
+/* 共享组件 */
+.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+.panel h2 { margin:0 0 12px; font-size:15px; }
+.badge { padding:2px 8px; border-radius:999px; font-size:12px; }
+.badge.ok { background:#dcfce7; color:var(--ok); }
+.badge.bad { background:#fee2e2; color:var(--bad); }
+.badge.off { background:#f3f4f6; color:var(--muted); }
+.muted { color:var(--muted); }
+.hint { font-size:12px; color:var(--muted); }
+button.primary { border:none; background:var(--accent); color:#fff; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; }
+button.ghost { border:1px solid var(--line); background:var(--card); color:var(--text); padding:7px 16px; border-radius:8px; cursor:pointer; font-size:13px; }
+button.danger { border:none; background:var(--bad); color:#fff; padding:6px 12px; border-radius:8px; cursor:pointer; font-size:12px; }
+button:hover { filter:brightness(1.04); }
+.table-wrap { overflow:auto; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); white-space:nowrap; }
+thead th { background:#fafafa; color:var(--muted); font-weight:600; }
+tbody tr:hover { background:#f3f4f6; }
+td.clip { max-width:260px; overflow:hidden; text-overflow:ellipsis; }

@@ -45,15 +45,21 @@ class BotRegistryTest {
         bots.put("dev", enabled);
         bots.put("ops", disabled);
 
-        FeishuProperties properties = new FeishuProperties();
-        properties.setBots(bots);
-        BotRegistry registry = new BotRegistry(properties);
+        // repository 传 null：无数据库时的纯内存注册表，测试直接 replace 注入。
+        BotRegistry registry = new BotRegistry(null);
+        registry.replace(bots);
 
         assertNotNull(registry.get("dev"));
         assertTrue(registry.get("dev").isEnabled());
         assertFalse(registry.get("ops").isEnabled());
         assertNull(registry.get("nope"));
         assertEquals(2, registry.all().size());
+    }
+
+    @Test
+    void defaultBotStartsEmptyAndIsReadable() {
+        BotRegistry registry = new BotRegistry(null);
+        assertEquals("", registry.getDefaultBot(), "无数据库时默认机器人为空串，POST /webhook 会 40002");
     }
 
     @Test
@@ -71,8 +77,7 @@ class BotRegistryTest {
 
     @Test
     void snapshotIsImmutableSoCallersCannotMutateConfig() {
-        FeishuProperties properties = new FeishuProperties();
-        BotRegistry registry = new BotRegistry(properties);
+        BotRegistry registry = new BotRegistry(null);
         Map<String, FeishuProperties.Bot> all = registry.all();
         try {
             all.put("x", new FeishuProperties.Bot());

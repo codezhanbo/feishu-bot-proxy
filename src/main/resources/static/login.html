@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · feishu-bot-proxy</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#e5e7eb; --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --danger:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif; color:var(--text); }
+  .card { width:320px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:32px 28px;
+          box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 24px; }
+  label { display:block; font-size:13px; margin-bottom:6px; color:var(--muted); }
+  input { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; margin-bottom:16px; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { width:100%; padding:10px; background:var(--accent); color:#fff; border:none; border-radius:8px;
+           font-size:14px; cursor:pointer; }
+  button:hover { filter:brightness(1.05); }
+  button:disabled { opacity:.6; cursor:default; }
+  #error { color:var(--danger); font-size:13px; margin-top:12px; min-height:18px; }
+</style>
+</head>
+<body>
+  <form class="card" id="form" autocomplete="off">
+    <h1>后台登录</h1>
+    <p class="sub">feishu-bot-proxy 管理控制台</p>
+    <label for="username">用户名</label>
+    <input id="username" name="username" autocomplete="username" required>
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit" id="submit">登录</button>
+    <div id="error"></div>
+  </form>
+<script>
+  // 已登录就直接进菜单页。
+  fetch('/console/session').then(r => r.json()).then(j => {
+    if (j && j.authenticated) location.replace('/home.html');
+  }).catch(() => {});
+
+  document.getElementById('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submit');
+    const err = document.getElementById('error');
+    err.textContent = '';
+    btn.disabled = true;
+    try {
+      const body = new URLSearchParams(new FormData(e.target));
+      const res = await fetch('/console/login', { method: 'POST', body });
+      const j = await res.json().catch(() => null);
+      if (res.ok) { location.replace('/home.html'); return; }
+      err.textContent = (j && j.msg) || ('登录失败 (' + res.status + ')');
+    } catch (ex) {
+      err.textContent = '网络错误，请重试';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

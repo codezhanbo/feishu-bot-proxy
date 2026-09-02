@@ -56,7 +56,7 @@ public class WebhookController {
     @PostMapping("/webhook")
     public ResponseEntity<String> forwardToDefault(@RequestBody(required = false) byte[] body,
                                                    HttpServletRequest request) {
-        String defaultBot = BotRegistry.normalizeBotKey(properties.getDefaultBot());
+        String defaultBot = BotRegistry.normalizeBotKey(registry.getDefaultBot());
         if (defaultBot.isEmpty()) {
             return reject("", body, null, request, 400, 40002, "no default bot configured");
         }

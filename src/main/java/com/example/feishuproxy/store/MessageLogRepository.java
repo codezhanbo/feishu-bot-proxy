@@ -136,13 +136,16 @@ public class MessageLogRepository {
     public MessageLogRepository(FeishuProperties properties, ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         this.maxStoredBodyBytes = Math.max(1, properties.getMaxBodyBytes());
-        this.configured = properties.getStore().isEnabled();
         this.jdbcUrl = properties.getStore().getJdbcUrl();
         this.username = properties.getStore().getUsername();
         this.password = properties.getStore().getPassword();
+        // store.enabled 关闭，或没配 jdbc-url，都算「未启用」——避免拿空串去连库，
+        // 触发 DriverManager 那句让人误以为缺驱动的 "No suitable driver found"。
+        this.configured = properties.getStore().isEnabled()
+                && jdbcUrl != null && !jdbcUrl.trim().isEmpty();
 
         if (!configured) {
-            log.info("message store disabled by configuration");
+            log.info("message store disabled: no jdbc-url configured");
             return;
         }
         connect();
@@ -381,40 +384,69 @@ public class MessageLogRepository {
         }
     }
 
+    public synchronized List<MessageLog> query(String botKey, Boolean success, int limit, int offset) {
+        return query(botKey, success, null, null, null, limit, offset);
+    }
+
     /**
      * 最新在前。故意按主键而非 {@code created_at} 排序：这张表只追加写入，
      * 主键本身就是时间序，无需额外索引。
      *
-     * @param botKey 按单个目标过滤，null 表示不限
-     * @param success 按结果过滤，null 表示不限
+     * @param botKey      按单个目标过滤，null 表示不限
+     * @param success     按结果过滤，null 表示不限
+     * @param keyword     按 title / text_preview / body 模糊匹配，null 或空白表示不限
+     * @param fromEpochMs 落库时间下限（含，epoch 毫秒），null 表示不限
+     * @param toEpochMs   落库时间上限（含，epoch 毫秒），null 表示不限
      */
-    public synchronized List<MessageLog> query(String botKey, Boolean success, int limit, int offset) {
+    public synchronized List<MessageLog> query(String botKey, Boolean success, String keyword,
+                                               Long fromEpochMs, Long toEpochMs, int limit, int offset) {
         List<MessageLog> out = new ArrayList<>();
         Connection current = connection();
         if (current == null) {
             return out;
         }
 
-        StringBuilder sql = new StringBuilder("SELECT ").append(COLUMNS).append(" FROM message_log");
+        List<String> clauses = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
         if (botKey != null) {
             // 对于「一个请求可指向多个群组」时代遗留的行，bot_keys 用逗号拼接，
             // 所以两侧都包上逗号，避免把 "ops-group" 里的 "ops" 也匹配进去。
-            sql.append(" WHERE (','||bot_keys||',') LIKE ? ESCAPE '!'");
-        } else {
-            sql.append(" WHERE 1=1");
+            clauses.add("(','||bot_keys||',') LIKE ? ESCAPE '!'");
+            params.add("%," + escapeLike(botKey) + ",%");
         }
         if (success != null) {
-            sql.append(" AND success = ?");
+            clauses.add("success = ?");
+            params.add(success ? 1 : 0);
         }
-        sql.append(" ORDER BY id DESC LIMIT ? OFFSET ?");
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String like = "%" + escapeLike(keyword.trim()) + "%";
+            clauses.add("(title LIKE ? ESCAPE '!' OR text_preview LIKE ? ESCAPE '!' OR body LIKE ? ESCAPE '!')");
+            params.add(like);
+            params.add(like);
+            params.add(like);
+        }
+        if (fromEpochMs != null) {
+            clauses.add("created_at >= ?");
+            params.add(fromEpochMs);
+        }
+        if (toEpochMs != null) {
+            clauses.add("created_at <= ?");
+            params.add(toEpochMs);
+        }
 
-        try (PreparedStatement statement = current.prepareStatement(sql.toString())) {
+        String where = clauses.isEmpty() ? " WHERE 1=1" : " WHERE " + String.join(" AND ", clauses);
+        String sql = "SELECT " + COLUMNS + " FROM message_log" + where + " ORDER BY id DESC LIMIT ? OFFSET ?";
+
+        try (PreparedStatement statement = current.prepareStatement(sql)) {
             int index = 1;
-            if (botKey != null) {
-                statement.setString(index++, "%," + escapeLike(botKey) + ",%");
-            }
-            if (success != null) {
-                statement.setInt(index++, success ? 1 : 0);
+            for (Object param : params) {
+                if (param instanceof String) {
+                    statement.setString(index++, (String) param);
+                } else if (param instanceof Integer) {
+                    statement.setInt(index++, (Integer) param);
+                } else if (param instanceof Long) {
+                    statement.setLong(index++, (Long) param);
+                }
             }
             statement.setInt(index++, Math.max(1, Math.min(limit, MAX_PAGE)));
             statement.setInt(index, Math.max(0, offset));

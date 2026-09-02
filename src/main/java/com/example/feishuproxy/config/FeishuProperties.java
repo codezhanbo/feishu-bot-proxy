@@ -16,10 +16,15 @@ import java.util.Set;
 @ConfigurationProperties(prefix = "feishu")
 public class FeishuProperties {
 
-    /** botKey -> 机器人定义。botKey 是调用方放在 URL 里的那段：/webhook/{botKey}。 */
+    /**
+     * botKey -> 机器人定义。botKey 是调用方放在 URL 里的那段：/webhook/{botKey}。
+     * <p>
+     * 仅作<b>首次启动种子</b>：{@code bot} 表为空时由 {@code BotRepository} 灌入一次，
+     * 此后运行时一律读数据库，改这里不再生效。
+     */
     private Map<String, Bot> bots = new LinkedHashMap<>();
 
-    /** 当路径中没有 botKey 时，POST /webhook 使用的机器人。可选。 */
+    /** 当路径中没有 botKey 时，POST /webhook 使用的机器人。同样仅作首次启动种子。 */
     private String defaultBot;
 
     /** 当非空时，调用方必须携带匹配的 X-Api-Token 请求头。为空则关闭校验。 */
@@ -37,6 +42,8 @@ public class FeishuProperties {
     private RateLimit rateLimit = new RateLimit();
 
     private Store store = new Store();
+
+    private Admin admin = new Admin();
 
     public Map<String, Bot> getBots() {
         return bots;
@@ -108,6 +115,14 @@ public class FeishuProperties {
 
     public void setStore(Store store) {
         this.store = store;
+    }
+
+    public Admin getAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(Admin admin) {
+        this.admin = admin;
     }
 
     /** 一个飞书自定义机器人，即一个群聊。 */
@@ -298,6 +313,31 @@ public class FeishuProperties {
         public void setJdbcUrl(String jdbcUrl) {
             this.jdbcUrl = jdbcUrl;
         }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+    }
+
+    /** 后台管理界面（/login.html、/console.html）的登录凭据，与 webhook 的 access-token 独立。 */
+    public static class Admin {
+
+        private String username = "admin";
+
+        /** 留空则后台登录不可用（/console/login 直接报 50003）。 */
+        private String password = "";
 
         public String getUsername() {
             return username;
