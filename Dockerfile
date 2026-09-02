@@ -1,5 +1,5 @@
 # 多阶段构建：JDK 8 打包，精简 JRE 8 运行。
-# 不用 alpine：sqlite-jdbc 依赖 glibc 的 JNI 原生库，alpine 是 musl 会加载失败。
+# 构建与运行阶段都用 eclipse-temurin（glibc 基础镜像）；postgresql 驱动是纯 Java，无 JNI 依赖。
 
 # ---------- 阶段一：构建 ----------
 FROM maven:3.9-eclipse-temurin-8 AS build

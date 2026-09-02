@@ -2,7 +2,7 @@
 
 飞书自定义机器人 webhook 的**中转服务**。应用不再直连 `open.feishu.cn`，改为调这个服务，由它统一转发。
 
-Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-starter-web` 和 `sqlite-jdbc`。
+Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-starter-web` 和 `postgresql`（测试另用 H2）。
 
 ## 解决什么问题
 
@@ -11,7 +11,7 @@ Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-star
 | webhook 地址散落在各应用配置里，换群要改代码发版 | 换群只改中转服务一处配置 |
 | 每个应用各自管加签密钥 | 密钥集中在中转服务，应用完全不用管 |
 | 各应用各自触发飞书 100 次/分钟频控，失败就丢消息 | 统一限流 + 失败自动重试 |
-| 出问题查不到发过什么 | 每条消息原文落 SQLite，重启不丢 |
+| 出问题查不到发过什么 | 每条消息原文落 Postgres，重启不丢 |
 | 开了 IP 白名单要放行每台应用机器 | 只放行中转服务一个出口 IP |
 
 ## 应用侧怎么改
@@ -55,7 +55,9 @@ feishu:
 
   store:
     enabled: true               # 关掉则不落库，/admin/logs 返回 503
-    path: ./data/feishu-proxy.db
+    jdbc-url: ${FEISHU_STORE_JDBC_URL}   # Supabase 的 Session Pooler 连接串
+    username: ${FEISHU_STORE_USERNAME}   # 形如 postgres.<project-ref>
+    password: ${FEISHU_STORE_PASSWORD}
 
   bots:
     dev-group:
@@ -86,14 +88,14 @@ feishu:
 
 ### 消息留档
 
-**每一次带请求体的调用都会在 SQLite 里落一行**，无论成败——包括被判为非法 JSON、超长、botKey 不存在而根本没发出去的那些。
+**每一次带请求体的调用都会在 Postgres 里落一行**，无论成败——包括被判为非法 JSON、超长、botKey 不存在而根本没发出去的那些。
 
-```bash
-sqlite3 ./data/feishu-proxy.db \
-  'select id, create_datetime, bot_keys, msg_type, title from message_log'
+```sql
+-- 在 Supabase 的 SQL Editor（或任意 Postgres 客户端）里跑：
+select id, create_datetime, bot_keys, msg_type, title from message_log order by id desc;
 ```
 
-`create_datetime` 是落库时间的可读形式（`yyyy-MM-dd HH:mm:ss.SSS`，与 `/admin/logs` 里的 `time` 同值）；`created_at` 是同一时刻的 epoch 毫秒。`create_datetime` 是后加的列，旧行为 NULL，旧行仍可用 `datetime(created_at/1000,"unixepoch","localtime")` 换算（少了毫秒部分）。
+`create_datetime` 是落库时间的可读形式（`yyyy-MM-dd HH:mm:ss.SSS`，与 `/admin/logs` 里的 `time` 同值）；`created_at` 是同一时刻的 epoch 毫秒。`create_datetime` 是后加的列，旧行为 NULL，旧行仍可用 `to_timestamp(created_at/1000.0)` 换算（少了毫秒部分）。
 
 `title` 和 `text_preview` 是从飞书报文里提取出来的，`post` 富文本取标题和正文纯文本、`interactive` 取卡片标题，方便直接用 SQL 翻历史，不用一条条读 `body`。`body` 存的是**调用方原始的 JSON 全文**（不是加签后的）。
 
@@ -119,7 +121,7 @@ sqlite3 ./data/feishu-proxy.db \
 
 > `botKeys` / `results` 是复数形态，因为早先支持过一次发多个群，历史行里可能有多个目标；现在写入的行永远只有一个。
 
-顶层的 `code`/`msg` 就是当时回给调用方的那个。落库是同步的，但**失败只降级告警，绝不影响转发**——库打不开、被杀毒软件锁住，消息照发，只是查不到档。
+顶层的 `code`/`msg` 就是当时回给调用方的那个。落库是同步的，但**失败只降级告警，绝不影响转发**——库连不上、连接被回收，消息照发，只是查不到档。
 
 ### 战报数值
 
@@ -133,10 +135,9 @@ sqlite3 ./data/feishu-proxy.db \
 | `bp_gained` | 本次新增的 BP |
 | `duration` | 本次新增的对局时长，`HH:MM:SS` |
 
-```bash
-sqlite3 ./data/feishu-proxy.db \
-  'select stat_date, survival_level, bp_gained, exp_gained, duration
-     from message_log where stat_date is not null order by id desc'
+```sql
+select stat_date, survival_level, bp_gained, exp_gained, duration
+  from message_log where stat_date is not null order by id desc;
 ```
 
 报文给的全是**累计值**，后三列是「当前值 − 同 botKey 上一条战报的值」。几条需要知道的规则：
@@ -210,13 +211,13 @@ mvn test    # 88 个用例
 - **消息库只增不删。** 没有自动清理，磁盘占用要自己盯。粗算：一条 500B 的消息约占 1KB，每天 1000 条一年约 350MB。要瘦身就自己 `delete from message_log where created_at < ...` 再 `vacuum`。
 - **统计（`/admin/stats`）仍然在内存里，重启清零。** 只有消息本身是持久的。
 - **重试是 at-least-once。** 网络超时重试可能造成飞书其实已收到、中转判为失败又重发的重复消息。告警通知场景一般可接受。
-- **中转服务是单点**：它挂了所有群都发不出去。生产建议双实例 + 负载均衡，但注意两点：**限流是每实例本地计数**，N 个实例的实际上限是 N × `per-minute`，要相应下调；**消息库也是每实例一份**，`/admin/logs` 只看得到自己这半边（SQLite 不适合多进程共享一个文件，别把 `path` 指到同一块共享盘）。
+- **中转服务是单点**：它挂了所有群都发不出去。生产建议双实例 + 负载均衡，但注意：**限流是每实例本地计数**，N 个实例的实际上限是 N × `per-minute`，要相应下调；消息库是共享的一张 Postgres 表，`/admin/logs` 看得到全部，但**战报差分不是跨实例原子的**——两个实例并发写同一群时可能读到同一条「上一条」，算重增量。
 - 改配置需要重启。
 
 ## 安全
 
 - **webhook URL 和 secret 是凭据**，拿到就能往群里发消息。生产用环境变量注入，不要提交进 Git；`.gitignore` 已排除 `application-local.yml` / `application-prod.yml` / `bots.yml`。
 - 日志和 `/admin/bots` 里的 webhook 一律脱敏。
-- **`./data/*.db` 里是真实消息原文**，敏感程度等同于群聊记录，且 `/admin/logs` 会把 `body` 整个吐出来。`.gitignore` 已排除 `data/` 和 `*.db`；机器上的文件权限和 `/admin/*` 的暴露面要自己把关（见下面的 `access-token`）。
+- **`message_log` 表里是真实消息原文**，敏感程度等同于群聊记录，且 `/admin/logs` 会把 `body` 整个吐出来。数据库（Supabase）的访问权限和 `/admin/*` 的暴露面要自己把关（见下面的 `access-token`）。
 - 若群开了 **IP 白名单**，要放行的是**中转服务的公网出口 IP**，不再是各应用的 IP。
 - 中转服务默认不鉴权（内网场景）。暴露到不可信网络时请设置 `feishu.access-token`，调用方带 `X-Api-Token` 头。

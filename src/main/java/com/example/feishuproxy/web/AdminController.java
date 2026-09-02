@@ -85,7 +85,7 @@ public class AdminController {
         out.put("total", messageLog.total());
         out.put("offset", Math.max(0, offset));
         out.put("maxLimit", MessageLogRepository.MAX_PAGE);
-        out.put("note", "persisted to sqlite, one row per request, never pruned");
+        out.put("note", "persisted to postgres, one row per request, never pruned");
         out.put("records", records);
         return JsonResponses.ok(objectMapper, out);
     }

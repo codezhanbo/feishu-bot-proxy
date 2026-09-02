@@ -271,13 +271,17 @@ public class FeishuProperties {
         }
     }
 
-    /** 每条入站消息的持久化位置。一个 SQLite 文件，只追加，从不清理。 */
+    /** 每条入站消息的持久化位置。一个 Postgres 库，只追加，从不清理。 */
     public static class Store {
 
         private boolean enabled = true;
 
-        /** 相对路径相对于 JVM 工作目录解析，而不是 jar 所在位置。 */
-        private String path = "./data/feishu-proxy.db";
+        /** 完整 JDBC URL，如 {@code jdbc:postgresql://.../postgres?sslmode=require}。 */
+        private String jdbcUrl = "";
+
+        private String username = "";
+
+        private String password = "";
 
         public boolean isEnabled() {
             return enabled;
@@ -287,12 +291,28 @@ public class FeishuProperties {
             this.enabled = enabled;
         }
 
-        public String getPath() {
-            return path;
+        public String getJdbcUrl() {
+            return jdbcUrl;
         }
 
-        public void setPath(String path) {
-            this.path = path;
+        public void setJdbcUrl(String jdbcUrl) {
+            this.jdbcUrl = jdbcUrl;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
         }
     }
 }

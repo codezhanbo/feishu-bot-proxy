@@ -14,7 +14,7 @@ feishu:
   rate-limit:
     enabled: false
 
-  # store.path 由 @DynamicPropertySource 在运行时注入，指向一个临时文件。
+  # store.jdbc-url 由 @DynamicPropertySource 在运行时注入，指向 H2 内存库。
   store:
     enabled: true
 

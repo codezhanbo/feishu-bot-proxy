@@ -164,7 +164,7 @@ public class FeishuSender {
     private void record(SendResult result, String msgType, String clientIp, int bodyBytes) {
         stats.record(result.getBotKey(), result.isSuccess(), result.getCode(), result.getCostMs());
 
-        // 消息本身的持久化记录由控制器在每个请求中写入一次（落到 SQLite），
+        // 消息本身的持久化记录由控制器在每个请求中写入一次（落到 Postgres），
         // 这里输出的是每次投递的运行轨迹。
         if (result.isSuccess()) {
             log.info("sent botKey={} msgType={} code={} attempts={} costMs={} clientIp={} bodyBytes={}",

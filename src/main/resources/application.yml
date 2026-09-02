@@ -31,7 +31,10 @@ feishu:
 
   store:
     enabled: true
-    path: ./data/feishu-proxy.db   # 每条入站消息都追加写入，永久保留，从不清理
+    # 走 Supabase 的 Session Pooler（IPv4，适配 Render）。表由启动时自动建，无需手工执行 DDL。
+    jdbc-url: ${FEISHU_STORE_JDBC_URL:}   # jdbc:postgresql://aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+    username: ${FEISHU_STORE_USERNAME:}
+    password: ${FEISHU_STORE_PASSWORD:}
 
   bots:
     dev-group:

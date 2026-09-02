@@ -18,7 +18,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,18 +46,11 @@ class WebhookControllerIntegrationTest {
         registry.add("feishu.bots.signed.webhook", MOCK::url);
         registry.add("feishu.bots.second.webhook", MOCK::url);
         registry.add("feishu.bots.paused.webhook", MOCK::url);
-        // 在这里计算而非用 @TempDir：静态 @TempDir 与 @DynamicPropertySource 之间的顺序
-        // 没有保证，输掉这个竞态就会在工作目录里打开 ./data。
-        registry.add("feishu.store.path", () -> tempStorePath());
-    }
-
-    private static String tempStorePath() {
-        try {
-            return Files.createTempDirectory("feishu-proxy-test")
-                    .resolve("messages.db").toAbsolutePath().toString();
-        } catch (IOException e) {
-            throw new IllegalStateException("cannot create temp store", e);
-        }
+        // 存储用 H2 内存库（PostgreSQL 兼容模式）顶替真 Postgres。
+        registry.add("feishu.store.jdbc-url",
+                () -> "jdbc:h2:mem:it;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
+        registry.add("feishu.store.username", () -> "sa");
+        registry.add("feishu.store.password", () -> "");
     }
 
     @Autowired
