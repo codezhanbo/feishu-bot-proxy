@@ -1,7 +1,10 @@
 package com.example.feishuproxy.web;
 
 import com.example.feishuproxy.core.PubgBanClient;
+import com.example.feishuproxy.model.BanCheckLog;
 import com.example.feishuproxy.model.BanCheckResult;
+import com.example.feishuproxy.store.AccountRepository;
+import com.example.feishuproxy.store.BanCheckLogRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,10 +24,15 @@ import java.util.Map;
 public class PubgBanController {
 
     private final PubgBanClient client;
+    private final BanCheckLogRepository banCheckLog;
+    private final AccountRepository accounts;
     private final ObjectMapper objectMapper;
 
-    public PubgBanController(PubgBanClient client, ObjectMapper objectMapper) {
+    public PubgBanController(PubgBanClient client, BanCheckLogRepository banCheckLog,
+                             AccountRepository accounts, ObjectMapper objectMapper) {
         this.client = client;
+        this.banCheckLog = banCheckLog;
+        this.accounts = accounts;
         this.objectMapper = objectMapper;
     }
 
@@ -39,6 +47,15 @@ public class PubgBanController {
         String platformKey = platform == null || platform.trim().isEmpty() ? "steam" : platform.trim();
         BanCheckResult result = client.check(name, platformKey);
 
+        // 每次查询都留档，成功失败都写；这两个旁路都不能影响上面的查询应答。
+        banCheckLog.record(name, platformKey, result);
+        if (result.isSuccess()) {
+            accounts.updateFromCheck(name, toBanStatus(result),
+                    result.getLevelText(),
+                    result.getTotalMatches() == null ? null : result.getTotalMatches().longValue(),
+                    BanCheckLog.format(System.currentTimeMillis()));
+        }
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("success", result.isSuccess());
         if (result.isSuccess()) {
@@ -51,5 +68,12 @@ public class PubgBanController {
             out.put("error", result.getError());
         }
         return JsonResponses.ok(objectMapper, out);
+    }
+
+    /** 把上游的 banType 归一成账号表的两态「正常/封禁」。与 ban-check 页面的判定一致。 */
+    private static String toBanStatus(BanCheckResult result) {
+        String type = result.getBanType();
+        return type != null && !"innocent".equalsIgnoreCase(type)
+                ? AccountRepository.BANNED : AccountRepository.NORMAL;
     }
 }

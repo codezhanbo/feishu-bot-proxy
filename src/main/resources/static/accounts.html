@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>账号管理 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .form label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .form input[type=text] { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .form input:focus { outline:none; border-color:var(--accent); }
+  .form input:disabled { background:var(--bg, #f5f5f5); color:var(--muted); }
+  .form-buttons { grid-column:1 / -1; display:flex; gap:10px; align-items:center; }
+  #msg { min-height:18px; font-size:13px; color:var(--bad); }
+</style>
+</head>
+<body data-page="accounts">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="panel">
+        <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0;">我的账号</h2>
+          <button class="primary" id="new">添加账号</button>
+        </div>
+        <p class="hint" style="margin:8px 0 12px;">
+          手动维护我的账号（账号ID 与等级）。封禁状态 / 最后查询时间 / 总场次会在对该账号执行
+          <a href="/ban-check.html">封禁查询</a> 时自动更新。
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>账号ID</th><th>封禁状态</th><th>等级</th><th>最后查询时间</th><th>总场次</th><th></th></tr>
+            </thead>
+            <tbody id="tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="form-panel" hidden>
+        <h2 id="form-title">添加账号</h2>
+        <div class="form">
+          <label>账号ID<input type="text" id="f-accountId" placeholder="玩家昵称"></label>
+          <label>等级（可选）<input type="text" id="f-level" placeholder="如 500"></label>
+          <div class="form-buttons">
+            <button class="primary" id="save">保存</button>
+            <button class="ghost" id="cancel">取消</button>
+            <span id="msg"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>最近查询</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>时间</th><th>玩家</th><th>平台</th><th>结果</th><th>封禁状态</th><th>等级</th><th>总场次</th></tr>
+            </thead>
+            <tbody id="log-body"><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+<script>
+  let accounts = [];
+  let editing = null;   // 正在编辑的 accountId，null 表示新建
+
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function showMsg(text) { $('msg').textContent = text || ''; }
+
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    if (res.status === 401) { location.replace('/login.html'); throw new Error('unauthorized'); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      const e = new Error((j && j.msg) || ('HTTP ' + res.status));
+      e.code = (j && j.code) || res.status;
+      throw e;
+    }
+    return j;
+  }
+
+  async function load() {
+    const [accountList, logList] = await Promise.all([
+      api('/console/accounts').catch(() => null),
+      api('/console/ban-logs?limit=20').catch(() => null),
+    ]);
+    accounts = (accountList && accountList.accounts) || [];
+    renderTable();
+    renderLogs((logList && logList.records) || []);
+  }
+
+  function statusBadge(s) {
+    if (s === '封禁') return '<span class="badge bad">封禁</span>';
+    if (s === '正常') return '<span class="badge ok">正常</span>';
+    return '<span class="muted">' + esc(s || '—') + '</span>';
+  }
+
+  function renderTable() {
+    const tbody = $('tbody');
+    if (!accounts.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">还没有账号，点「添加账号」</td></tr>';
+      return;
+    }
+    tbody.innerHTML = accounts.map(a =>
+      '<tr>' +
+      '<td>' + esc(a.accountId) + '</td>' +
+      '<td>' + statusBadge(a.banStatus) + '</td>' +
+      '<td>' + esc(a.level || '—') + '</td>' +
+      '<td>' + esc(a.lastCheckedAt || '—') + '</td>' +
+      '<td>' + (a.totalMatches == null ? '—' : esc(a.totalMatches)) + '</td>' +
+      '<td><button class="ghost" data-edit="' + esc(a.accountId) + '">编辑</button> ' +
+      '<button class="danger" data-del="' + esc(a.accountId) + '">删除</button></td>' +
+      '</tr>').join('');
+  }
+
+  function renderLogs(records) {
+    const tbody = $('log-body');
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">还没有查询记录</td></tr>';
+      return;
+    }
+    tbody.innerHTML = records.map(r => {
+      const ok = r.success
+        ? '<span class="badge ok">成功</span>'
+        : '<span class="badge bad">失败</span>';
+      return '<tr>' +
+        '<td>' + esc(r.queriedDatetime || '—') + '</td>' +
+        '<td>' + esc(r.player) + '</td>' +
+        '<td>' + esc(r.platform) + '</td>' +
+        '<td>' + ok + '</td>' +
+        '<td>' + esc(r.banStatus || '—') + '</td>' +
+        '<td>' + esc(r.level || '—') + '</td>' +
+        '<td>' + (r.totalMatches == null ? '—' : esc(r.totalMatches)) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function openForm(account) {
+    editing = account ? account.accountId : null;
+    $('form-panel').hidden = false;
+    $('form-title').textContent = account ? '编辑账号 ' + account.accountId : '添加账号';
+    $('f-accountId').value = account ? account.accountId : '';
+    $('f-accountId').disabled = !!account;   // 主键不可改
+    $('f-level').value = account ? (account.level || '') : '';
+    showMsg('');
+    $('form-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function closeForm() {
+    editing = null;
+    $('form-panel').hidden = true;
+    $('f-accountId').disabled = false;
+  }
+
+  async function save() {
+    const accountId = $('f-accountId').value.trim();
+    const level = $('f-level').value.trim();
+    if (!accountId) { showMsg('请输入账号ID'); return; }
+    try {
+      if (editing) {
+        await api('/console/accounts/' + encodeURIComponent(editing), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level }),
+        });
+      } else {
+        await api('/console/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId, level }),
+        });
+      }
+      closeForm();
+      await load();
+    } catch (e) {
+      showMsg(e.message);
+    }
+  }
+
+  async function remove(accountId) {
+    if (!confirm('确认删除账号 ' + accountId + ' ？')) return;
+    try {
+      await api('/console/accounts/' + encodeURIComponent(accountId), { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  $('tbody').addEventListener('click', e => {
+    const editBtn = e.target.closest('[data-edit]');
+    const delBtn = e.target.closest('[data-del]');
+    if (editBtn) {
+      const accountId = editBtn.getAttribute('data-edit');
+      const account = accounts.find(a => a.accountId === accountId);
+      if (account) openForm(account);
+    } else if (delBtn) {
+      remove(delBtn.getAttribute('data-del'));
+    }
+  });
+  $('new').addEventListener('click', () => openForm(null));
+  $('cancel').addEventListener('click', closeForm);
+  $('save').addEventListener('click', save);
+
+  load();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>

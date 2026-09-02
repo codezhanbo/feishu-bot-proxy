@@ -6,6 +6,7 @@
     { key: 'console', href: '/console.html', icon: '📋', label: '消息查询' },
     { key: 'bots',    href: '/bots.html',    icon: '🤖', label: 'Bot 配置' },
     { key: 'ban-check', href: '/ban-check.html', icon: '🎮', label: '封禁查询' },
+    { key: 'accounts', href: '/accounts.html', icon: '👤', label: '账号管理' },
     { key: 'alerts',  href: '/alerts.html',  icon: '🚨', label: '告警配置' },
     { key: 'alert-runs', href: '/alert-runs.html', icon: '🕒', label: '调度日志' }
   ];
