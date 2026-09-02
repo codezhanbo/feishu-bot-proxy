@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>告警配置 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .form .full { grid-column:1 / -1; }
+  .form label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .form select, .form input[type=number] { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .form select:focus, .form input:focus { outline:none; border-color:var(--accent); }
+  .form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--text); }
+  .form-buttons { grid-column:1 / -1; display:flex; gap:10px; align-items:center; }
+  #msg { min-height:18px; font-size:13px; color:var(--bad); }
+</style>
+</head>
+<body data-page="alerts">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="panel">
+        <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0;">告警规则</h2>
+          <button class="primary" id="new">新建规则</button>
+        </div>
+        <p class="hint" style="margin:8px 0 12px;">
+          监控某个 bot 是否超过阈值时长没有新消息，超时则向目标 bot 发告警；冷却期内不重复提醒。
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>id</th><th>被监控 bot</th><th>阈值(分钟)</th><th>冷却(分钟)</th><th>状态</th><th>告警目标</th><th>最近告警</th><th></th></tr>
+            </thead>
+            <tbody id="tbody"><tr><td colspan="8" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="form-panel" hidden>
+        <h2 id="form-title">新建规则</h2>
+        <div class="form">
+          <label>被监控 bot<select id="f-botKey"></select></label>
+          <label>告警目标 bot<select id="f-alertBotKey"></select></label>
+          <label>超时阈值（分钟）<input type="number" id="f-threshold" min="1" value="30"></label>
+          <label>冷却间隔（分钟）<input type="number" id="f-cooldown" min="1" value="30"></label>
+          <label class="check"><input type="checkbox" id="f-enabled" checked> 启用监控</label>
+          <div class="form-buttons">
+            <button class="primary" id="save">保存</button>
+            <button class="ghost" id="cancel">取消</button>
+            <span id="msg"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+<script>
+  let bots = [];
+  let rules = [];
+  let editing = null;   // 正在编辑的规则 id，null 表示新建
+
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function fmt(ms) {
+    if (!ms) return '<span class="muted">—</span>';
+    return esc(new Date(ms).toLocaleString());
+  }
+
+  function showMsg(text) { $('msg').textContent = text || ''; }
+
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    if (res.status === 401) { location.replace('/login.html'); throw new Error('unauthorized'); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      const e = new Error((j && j.msg) || ('HTTP ' + res.status));
+      e.code = (j && j.code) || res.status;
+      throw e;
+    }
+    return j;
+  }
+
+  async function load() {
+    const [botList, alertList] = await Promise.all([
+      api('/console/bots').catch(() => null),
+      api('/console/alerts').catch(() => null),
+    ]);
+    bots = (botList && botList.bots) || [];
+    rules = (alertList && alertList.rules) || [];
+    renderTable();
+    renderSelects();
+  }
+
+  function renderSelects() {
+    const opts = '<option value="">（选择 bot）</option>' + bots.map(b =>
+      '<option value="' + esc(b.botKey) + '">' + esc(b.botKey) + '</option>').join('');
+    $('f-botKey').innerHTML = opts;
+    $('f-alertBotKey').innerHTML = opts;
+  }
+
+  function renderTable() {
+    const tbody = $('tbody');
+    if (!rules.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">还没有规则，点「新建规则」添加</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rules.map(r => {
+      const statusBadge = r.enabled
+        ? '<span class="badge ok">启用</span>' : '<span class="badge off">停用</span>';
+      return '<tr>' +
+        '<td>' + esc(r.id) + '</td>' +
+        '<td>' + esc(r.botKey) + '</td>' +
+        '<td>' + esc(r.thresholdMinutes) + '</td>' +
+        '<td>' + esc(r.cooldownMinutes) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td>' + esc(r.alertBotKey) + '</td>' +
+        '<td>' + fmt(r.lastAlertAt) + '</td>' +
+        '<td><button class="ghost" data-edit="' + esc(r.id) + '">编辑</button> ' +
+        '<button class="danger" data-del="' + esc(r.id) + '">删除</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function openForm(rule) {
+    editing = rule ? rule.id : null;
+    $('form-panel').hidden = false;
+    $('form-title').textContent = rule ? '编辑规则 #' + rule.id : '新建规则';
+    $('f-botKey').value = rule ? rule.botKey : '';
+    $('f-alertBotKey').value = rule ? rule.alertBotKey : '';
+    $('f-threshold').value = rule ? rule.thresholdMinutes : 30;
+    $('f-cooldown').value = rule ? rule.cooldownMinutes : 30;
+    $('f-enabled').checked = rule ? rule.enabled : true;
+    showMsg('');
+    $('form-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function closeForm() {
+    editing = null;
+    $('form-panel').hidden = true;
+  }
+
+  async function save() {
+    const botKey = $('f-botKey').value;
+    const alertBotKey = $('f-alertBotKey').value;
+    const threshold = parseInt($('f-threshold').value, 10);
+    const cooldown = parseInt($('f-cooldown').value, 10);
+    const enabled = $('f-enabled').checked;
+
+    if (!botKey) { showMsg('请选择被监控 bot'); return; }
+    if (!alertBotKey) { showMsg('请选择告警目标 bot'); return; }
+    if (!(threshold >= 1)) { showMsg('阈值必须 >= 1 分钟'); return; }
+    if (!(cooldown >= 1)) { showMsg('冷却必须 >= 1 分钟'); return; }
+
+    const payload = { botKey, alertBotKey, thresholdMinutes: threshold, cooldownMinutes: cooldown, enabled };
+    showMsg('');
+    try {
+      await api(editing ? '/console/alerts/' + editing : '/console/alerts', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      closeForm();
+      await load();
+    } catch (e) {
+      showMsg(e.message);
+    }
+  }
+
+  async function remove(id) {
+    if (!confirm('确认删除规则 #' + id + ' ？')) return;
+    try {
+      await api('/console/alerts/' + id, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // 事件
+  $('tbody').addEventListener('click', e => {
+    const editBtn = e.target.closest('[data-edit]');
+    const delBtn = e.target.closest('[data-del]');
+    if (editBtn) {
+      const id = Number(editBtn.getAttribute('data-edit'));
+      const rule = rules.find(r => r.id === id);
+      if (rule) openForm(rule);
+    } else if (delBtn) {
+      remove(Number(delBtn.getAttribute('data-del')));
+    }
+  });
+  $('new').addEventListener('click', () => openForm(null));
+  $('cancel').addEventListener('click', closeForm);
+  $('save').addEventListener('click', save);
+
+  load();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>

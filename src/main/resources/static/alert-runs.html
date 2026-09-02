@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>调度日志 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; background:var(--card);
+             border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .filters input { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
+  .filters input:focus { outline:none; border-color:var(--accent); }
+  .filters button { padding:8px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .meta { margin:16px 2px; color:var(--muted); font-size:13px; }
+  .table-wrap { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:auto; }
+  thead th { position:sticky; top:0; }
+  tbody tr { cursor:pointer; }
+  .pager { display:flex; align-items:center; gap:12px; margin:16px 2px; }
+  .pager button { padding:7px 16px; border:1px solid var(--line); background:var(--card); border-radius:8px; cursor:pointer; }
+  .pager button:disabled { opacity:.4; cursor:default; }
+  .pager span { font-size:13px; color:var(--muted); }
+  .detail { margin-top:20px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .detail h2 { margin:0 0 12px; font-size:15px; }
+  .detail pre { background:#0f172a; color:#e2e8f0; padding:16px; border-radius:8px; overflow:auto; font-size:12px; line-height:1.5; }
+</style>
+</head>
+<body data-page="alert-runs">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="filters">
+        <label>每页条数<input type="number" id="limit" value="50" min="1" max="200"></label>
+        <button id="query">刷新</button>
+      </section>
+
+      <div class="meta" id="meta"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>id</th><th>执行时间</th><th>状态</th><th>扫描规则数</th><th>触发告警数</th><th>耗时(ms)</th></tr>
+          </thead>
+          <tbody id="tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button id="prev">上一页</button>
+        <span id="page"></span>
+        <button id="next">下一页</button>
+      </div>
+
+      <section class="detail" id="detail" hidden>
+        <h2>告警明细</h2>
+        <pre id="detail-body"></pre>
+      </section>
+    </main>
+  </div>
+<script>
+  let offset = 0;
+  let lastCount = 0;
+  const tbody = document.getElementById('tbody');
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function fmt(ms) {
+    return ms ? new Date(ms).toLocaleString() : '—';
+  }
+
+  function statusBadge(s) {
+    return s === 'skipped'
+      ? '<span class="badge off">跳过（库不可用）</span>'
+      : '<span class="badge ok">正常</span>';
+  }
+
+  async function load() {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">加载中…</td></tr>';
+    const limit = document.getElementById('limit').value;
+    try {
+      const res = await fetch('/console/alert-runs?limit=' + limit + '&offset=' + offset);
+      if (res.status === 401) { location.replace('/login.html'); return; }
+      const j = await res.json();
+      render(j);
+    } catch (ex) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">加载失败：' + esc(ex.message) + '</td></tr>';
+    }
+  }
+
+  function render(j) {
+    lastCount = j.count || 0;
+    document.getElementById('meta').textContent =
+      '本页 ' + lastCount + ' 条 · 全表 ' + (j.total ?? 0) + ' 条 · offset ' + (j.offset ?? 0);
+
+    if (!j.records || j.records.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">暂无执行记录</td></tr>';
+    } else {
+      tbody.innerHTML = j.records.map(r => rowHtml(r)).join('');
+    }
+
+    const limit = parseInt(document.getElementById('limit').value || '50', 10);
+    document.getElementById('prev').disabled = offset <= 0;
+    document.getElementById('next').disabled = lastCount < limit;
+    document.getElementById('page').textContent =
+      '第 ' + (offset / Math.max(1, limit) + 1) + ' 页';
+  }
+
+  function rowHtml(r) {
+    return '<tr data-id="' + r.id + '">' +
+      '<td>' + esc(r.id) + '</td>' +
+      '<td>' + esc(fmt(r.executedAt)) + '</td>' +
+      '<td>' + statusBadge(r.status) + '</td>' +
+      '<td>' + esc(r.rulesScanned) + '</td>' +
+      '<td>' + esc(r.alertsFired) + '</td>' +
+      '<td>' + esc(r.durationMs) + '</td>' +
+      '</tr>';
+  }
+
+  function showDetail(r) {
+    let text;
+    if (!r.detail) {
+      text = '本轮无告警';
+    } else {
+      try { text = JSON.stringify(JSON.parse(r.detail), null, 2); }
+      catch (e) { text = r.detail; }
+    }
+    document.getElementById('detail-body').textContent = text;
+    document.getElementById('detail').hidden = false;
+    document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  tbody.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    const id = tr.getAttribute('data-id');
+    const limit = document.getElementById('limit').value;
+    fetch('/console/alert-runs?limit=' + limit + '&offset=' + offset).then(r => r.json()).then(j => {
+      const rec = (j.records || []).find(x => String(x.id) === id);
+      if (rec) showDetail(rec);
+    });
+  });
+
+  document.getElementById('query').addEventListener('click', () => { offset = 0; load(); });
+  document.getElementById('prev').addEventListener('click', () => {
+    offset = Math.max(0, offset - parseInt(document.getElementById('limit').value || '50', 10));
+    load();
+  });
+  document.getElementById('next').addEventListener('click', () => {
+    offset += parseInt(document.getElementById('limit').value || '50', 10);
+    load();
+  });
+
+  load();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>

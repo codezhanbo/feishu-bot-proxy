@@ -3,12 +3,15 @@ package com.example.feishuproxy.web;
 import com.example.feishuproxy.config.AdminSessionInterceptor;
 import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.core.BotRegistry;
+import com.example.feishuproxy.core.FeishuSender;
 import com.example.feishuproxy.model.MessageLog;
+import com.example.feishuproxy.model.SendResult;
 import com.example.feishuproxy.store.BotRepository;
 import com.example.feishuproxy.store.MessageLogRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +27,7 @@ import javax.servlet.http.HttpSession;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,14 +45,17 @@ public class AdminConsoleController {
     private final MessageLogRepository messageLog;
     private final BotRepository bots;
     private final BotRegistry registry;
+    private final FeishuSender sender;
     private final ObjectMapper objectMapper;
 
     public AdminConsoleController(FeishuProperties properties, MessageLogRepository messageLog,
-                                  BotRepository bots, BotRegistry registry, ObjectMapper objectMapper) {
+                                  BotRepository bots, BotRegistry registry, FeishuSender sender,
+                                  ObjectMapper objectMapper) {
         this.properties = properties;
         this.messageLog = messageLog;
         this.bots = bots;
         this.registry = registry;
+        this.sender = sender;
         this.objectMapper = objectMapper;
     }
 
@@ -236,6 +243,55 @@ public class AdminConsoleController {
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("botKey", botKey);
+        return JsonResponses.ok(objectMapper, out);
+    }
+
+    /**
+     * 走完整流水线向某 bot 发一条真实测试消息。逻辑与 {@code /admin/test/{botKey}} 一致，
+     * 但走会话鉴权——后台页面没法带 X-Api-Token，所以单独开一个会话受保护的入口。
+     */
+    @PostMapping("/console/bots/{botKey}/test")
+    public ResponseEntity<String> testBot(@PathVariable("botKey") String botKey,
+                                          HttpServletRequest request) {
+        botKey = normalizeBotKey(botKey);
+        FeishuProperties.Bot bot = registry.get(botKey);
+        if (bot == null) {
+            return JsonResponses.error(objectMapper, 404, 40401, "unknown botKey: " + botKey);
+        }
+        if (!bot.isEnabled()) {
+            return JsonResponses.error(objectMapper, 403, 40301, "bot disabled: " + botKey);
+        }
+
+        // 该群配置了关键词时带上第一个，好让飞书的关键词校验通过。
+        String prefix = bot.getKeywords().isEmpty() ? "" : bot.getKeywords().get(0) + " ";
+        String text = prefix + "[feishu-bot-proxy] test message for " + botKey;
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("msg_type", "text");
+        payload.putObject("content").put("text", text);
+        byte[] body = JsonResponses.write(objectMapper, payload).getBytes(StandardCharsets.UTF_8);
+
+        JsonNode parsed;
+        try {
+            parsed = objectMapper.readTree(body);
+        } catch (Exception e) {
+            return JsonResponses.error(objectMapper, 500, 50000, "internal error");
+        }
+
+        SendResult result = sender.send(botKey, bot, body, parsed, "text", request.getRemoteAddr());
+
+        // 和其它消息一样留档，这样测试消息也会出现在 /console/logs 里。
+        messageLog.record(Collections.singletonList(botKey), body, parsed, request.getRemoteAddr(),
+                result.getCode(), result.getMsg(), Collections.singletonList(result));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("botKey", botKey);
+        out.put("success", result.isSuccess());
+        out.put("code", result.getCode());
+        out.put("msg", result.getMsg());
+        out.put("attempts", result.getAttempts());
+        out.put("costMs", result.getCostMs());
+        out.put("sentText", text);
         return JsonResponses.ok(objectMapper, out);
     }
 

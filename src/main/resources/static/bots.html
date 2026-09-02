@@ -121,6 +121,7 @@
         '<td>' + statusBadge + '</td>' +
         '<td class="clip">' + esc(keywords) + '</td>' +
         '<td><button class="ghost" data-edit="' + esc(b.botKey) + '">编辑</button> ' +
+        '<button class="ghost" data-test="' + esc(b.botKey) + '">测试</button> ' +
         '<button class="danger" data-del="' + esc(b.botKey) + '">删除</button></td>' +
         '</tr>';
     }).join('');
@@ -201,15 +202,28 @@
     }
   }
 
+  async function testBot(botKey) {
+    try {
+      const r = await api('/console/bots/' + encodeURIComponent(botKey) + '/test', { method: 'POST' });
+      alert('已发送测试消息到 ' + r.botKey + '：' + (r.success ? '成功' : '失败') +
+        '（code=' + r.code + (r.msg ? ', ' + r.msg : '') + '）');
+    } catch (e) {
+      alert('发送失败：' + e.message);
+    }
+  }
+
   // 事件
   $('tbody').addEventListener('click', e => {
     const editBtn = e.target.closest('[data-edit]');
     const delBtn = e.target.closest('[data-del]');
+    const testBtn = e.target.closest('[data-test]');
     if (editBtn) {
       const bot = bots.find(b => b.botKey === editBtn.getAttribute('data-edit'));
       if (bot) openForm(bot);
     } else if (delBtn) {
       remove(delBtn.getAttribute('data-del'));
+    } else if (testBtn) {
+      testBot(testBtn.getAttribute('data-test'));
     }
   });
   $('new').addEventListener('click', () => openForm(null));

@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  # 优先跟随 Render 注入的 PORT 环境变量；本地没设 PORT 时回落 8080。
+  port: ${PORT:8080}
   servlet:
     session:
       timeout: 8h            # 后台登录会话时长
@@ -48,19 +49,9 @@ feishu:
     username: ${FEISHU_ADMIN_USERNAME:admin}
     password: ${FEISHU_ADMIN_PASSWORD:}   # 留空 => 后台登录不可用
 
-  # 首次启动种子：bot 表为空时自动导入一次，此后请到后台「Bot 配置」页增删改。
-  bots:
-    dev-group:
-      # 生产环境建议用环境变量：${FEISHU_DEV_WEBHOOK}
-      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/7f17d499-4491-46cd-b67e-daed865b5d0b
-      secret: ""                 # 群「安全设置 - 加签」的密钥；填上之后中转服务会自动加签
-      enabled: true
-
-    ops-group:
-      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE-ME-TOO
-      secret: ""
-      enabled: true
-      keywords: []               # 仅用于拼出一条能通过校验的 POST /admin/test/{botKey} 消息
+  # 存活告警的全局设置；告警规则本身在后台「告警配置」页增删改
+  alert:
+    check-interval-ms: 60000               # 告警调度器两轮检查之间的间隔（毫秒）
 
 logging:
   level:

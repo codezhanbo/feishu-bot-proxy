@@ -99,6 +99,11 @@ public class MessageLogRepository {
             "SELECT body FROM message_log WHERE (','||bot_keys||',') LIKE ? ESCAPE '!'"
                     + " AND msg_type = 'post' ORDER BY id DESC LIMIT " + LOOKBACK;
 
+    /** 某 botKey 最新一条记录的落库时间（epoch 毫秒）。这张表只追加写入，主键就是时间序。 */
+    private static final String LAST_CREATED_AT =
+            "SELECT created_at FROM message_log WHERE (','||bot_keys||',') LIKE ? ESCAPE '!'"
+                    + " ORDER BY id DESC LIMIT 1";
+
     private static final String INSERT =
             "INSERT INTO message_log (created_at, create_datetime, bot_keys, msg_type, title, text_preview, body,"
                     + " body_bytes, client_ip, success, code, msg, results,"
@@ -244,6 +249,27 @@ public class MessageLogRepository {
 
     public long total() {
         return total.get();
+    }
+
+    /**
+     * 某 botKey 最近一条记录的落库时间（epoch 毫秒）。没有该 botKey 的任何记录、或数据库
+     * 不可用时返回 {@code null}。告警调度器据此判断「这个 bot 已经多久没消息了」。
+     */
+    public synchronized Long lastCreatedAt(String botKey) {
+        Connection current = connection();
+        if (current == null) {
+            return null;
+        }
+        try (PreparedStatement statement = current.prepareStatement(LAST_CREATED_AT)) {
+            statement.setString(1, "%," + escapeLike(botKey) + ",%");
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        } catch (SQLException e) {
+            invalidate(current);
+            log.warn("failed to query last message time (botKey={})", botKey, e);
+            return null;
+        }
     }
 
     /**

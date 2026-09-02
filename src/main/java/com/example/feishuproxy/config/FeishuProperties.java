@@ -45,6 +45,8 @@ public class FeishuProperties {
 
     private Admin admin = new Admin();
 
+    private Alert alert = new Alert();
+
     public Map<String, Bot> getBots() {
         return bots;
     }
@@ -123,6 +125,14 @@ public class FeishuProperties {
 
     public void setAdmin(Admin admin) {
         this.admin = admin;
+    }
+
+    public Alert getAlert() {
+        return alert;
+    }
+
+    public void setAlert(Alert alert) {
+        this.alert = alert;
     }
 
     /** 一个飞书自定义机器人，即一个群聊。 */
@@ -353,6 +363,21 @@ public class FeishuProperties {
 
         public void setPassword(String password) {
             this.password = password;
+        }
+    }
+
+    /** 存活告警的全局设置。告警规则本身存在数据库里，由后台页面配置。 */
+    public static class Alert {
+
+        /** 告警调度器两轮检查之间的间隔（毫秒）。阈值以分钟计，默认一分钟查一次足够。 */
+        private long checkIntervalMs = 60000;
+
+        public long getCheckIntervalMs() {
+            return checkIntervalMs;
+        }
+
+        public void setCheckIntervalMs(long checkIntervalMs) {
+            this.checkIntervalMs = checkIntervalMs;
         }
     }
 }
