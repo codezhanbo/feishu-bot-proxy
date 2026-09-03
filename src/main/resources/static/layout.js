@@ -8,7 +8,8 @@
     { key: 'ban-check', href: '/ban-check.html', icon: '🎮', label: '封禁查询' },
     { key: 'accounts', href: '/accounts.html', icon: '👤', label: '账号管理' },
     { key: 'alerts',  href: '/alerts.html',  icon: '🚨', label: '告警配置' },
-    { key: 'alert-runs', href: '/alert-runs.html', icon: '🕒', label: '调度日志' }
+    { key: 'alert-runs', href: '/alert-runs.html', icon: '🕒', label: '调度日志' },
+    { key: 'alert-logs', href: '/alert-logs.html', icon: '📨', label: '告警日志' }
   ];
 
   var aside = document.getElementById('sidebar');

@@ -1,7 +1,9 @@
 package com.example.feishuproxy.web;
 
+import com.example.feishuproxy.model.AlertLog;
 import com.example.feishuproxy.model.AlertRule;
 import com.example.feishuproxy.model.AlertRunLog;
+import com.example.feishuproxy.store.AlertLogRepository;
 import com.example.feishuproxy.store.AlertRuleRepository;
 import com.example.feishuproxy.store.AlertRunLogRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,12 +32,14 @@ public class AlertConsoleController {
 
     private final AlertRuleRepository repository;
     private final AlertRunLogRepository runLog;
+    private final AlertLogRepository alertLog;
     private final ObjectMapper objectMapper;
 
     public AlertConsoleController(AlertRuleRepository repository, AlertRunLogRepository runLog,
-                                  ObjectMapper objectMapper) {
+                                  AlertLogRepository alertLog, ObjectMapper objectMapper) {
         this.repository = repository;
         this.runLog = runLog;
+        this.alertLog = alertLog;
         this.objectMapper = objectMapper;
     }
 
@@ -81,6 +85,26 @@ public class AlertConsoleController {
         out.put("offset", Math.max(0, offset));
         out.put("maxLimit", AlertRunLogRepository.MAX_PAGE);
         out.put("records", runs);
+        return JsonResponses.ok(objectMapper, out);
+    }
+
+    /** 告警事件日志，按触发时间倒序。可按被监控 bot / 触发时间区间（from/to，epoch 毫秒）过滤。数据库不可用时返回 503。 */
+    @GetMapping("/console/alert-logs")
+    public ResponseEntity<String> alertLogs(@RequestParam(required = false) String botKey,
+                                            @RequestParam(required = false) Long from,
+                                            @RequestParam(required = false) Long to,
+                                            @RequestParam(defaultValue = "20") int limit,
+                                            @RequestParam(defaultValue = "0") int offset) {
+        List<AlertLog> logs = alertLog.query(botKey, from, to, limit, offset);
+        if (logs == null) {
+            return JsonResponses.error(objectMapper, 503, 50301, "alert log store unavailable");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("count", logs.size());
+        out.put("total", alertLog.count(botKey, from, to));
+        out.put("offset", Math.max(0, offset));
+        out.put("maxLimit", AlertLogRepository.MAX_PAGE);
+        out.put("records", logs);
         return JsonResponses.ok(objectMapper, out);
     }
 

@@ -1,9 +1,11 @@
 package com.example.feishuproxy.core;
 
 import com.example.feishuproxy.config.FeishuProperties;
+import com.example.feishuproxy.model.AlertLog;
 import com.example.feishuproxy.model.AlertRule;
 import com.example.feishuproxy.model.AlertRunLog;
 import com.example.feishuproxy.model.SendResult;
+import com.example.feishuproxy.store.AlertLogRepository;
 import com.example.feishuproxy.store.AlertRuleRepository;
 import com.example.feishuproxy.store.AlertRunLogRepository;
 import com.example.feishuproxy.store.MessageLogRepository;
@@ -15,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -34,8 +37,9 @@ class AlertSchedulerTest {
     private final BotRegistry registry = mock(BotRegistry.class);
     private final FeishuSender sender = mock(FeishuSender.class);
     private final AlertRunLogRepository runLog = mock(AlertRunLogRepository.class);
+    private final AlertLogRepository alertLog = mock(AlertLogRepository.class);
     private final AlertScheduler scheduler =
-            new AlertScheduler(rules, messageLog, registry, sender, runLog, mapper);
+            new AlertScheduler(rules, messageLog, registry, sender, runLog, alertLog, mapper);
 
     private static AlertRule rule(long id, boolean enabled, int threshold, int cooldown, Long lastAlertAt) {
         AlertRule rule = new AlertRule();
@@ -71,6 +75,17 @@ class AlertSchedulerTest {
         verify(sender).send(eq("ops-group"), any(FeishuProperties.Bot.class), any(byte[].class),
                 any(JsonNode.class), eq("text"), eq("alert-scheduler"));
         verify(rules).setLastAlertAt(eq(1L), any(Long.class));
+
+        ArgumentCaptor<AlertLog> alertCaptor = ArgumentCaptor.forClass(AlertLog.class);
+        verify(alertLog).insert(alertCaptor.capture());
+        AlertLog entry = alertCaptor.getValue();
+        assertEquals(Long.valueOf(1L), entry.getRuleId());
+        assertEquals("dev-group", entry.getBotKey());
+        assertEquals("ops-group", entry.getAlertBotKey());
+        assertEquals(30, entry.getThresholdMinutes());
+        assertEquals(0, entry.getSendCode());
+        assertEquals("ok", entry.getSendMsg());
+        assertTrue(entry.getMessage().contains("dev-group"), "告警文案应含被监控 bot");
     }
 
     @Test
@@ -83,6 +98,7 @@ class AlertSchedulerTest {
 
         verify(sender, never()).send(any(), any(), any(), any(), any(), any());
         verify(rules, never()).setLastAlertAt(anyLong(), any());
+        verify(alertLog, never()).insert(any());
     }
 
     @Test
@@ -95,6 +111,7 @@ class AlertSchedulerTest {
         scheduler.check();
 
         verify(sender, never()).send(any(), any(), any(), any(), any(), any());
+        verify(alertLog, never()).insert(any());
     }
 
     @Test
@@ -109,6 +126,7 @@ class AlertSchedulerTest {
 
         verify(sender, never()).send(any(), any(), any(), any(), any(), any());
         verify(rules, never()).setLastAlertAt(anyLong(), any());
+        verify(alertLog, never()).insert(any());
     }
 
     @Test
@@ -151,6 +169,7 @@ class AlertSchedulerTest {
         scheduler.check();
 
         verify(sender, never()).send(any(), any(), any(), any(), any(), any());
+        verify(alertLog, never()).insert(any());
     }
 
     @Test

@@ -1,9 +1,11 @@
 package com.example.feishuproxy.core;
 
 import com.example.feishuproxy.config.FeishuProperties;
+import com.example.feishuproxy.model.AlertLog;
 import com.example.feishuproxy.model.AlertRule;
 import com.example.feishuproxy.model.AlertRunLog;
 import com.example.feishuproxy.model.SendResult;
+import com.example.feishuproxy.store.AlertLogRepository;
 import com.example.feishuproxy.store.AlertRuleRepository;
 import com.example.feishuproxy.store.AlertRunLogRepository;
 import com.example.feishuproxy.store.MessageLogRepository;
@@ -46,16 +48,18 @@ public class AlertScheduler {
     private final BotRegistry registry;
     private final FeishuSender sender;
     private final AlertRunLogRepository runLog;
+    private final AlertLogRepository alertLog;
     private final ObjectMapper objectMapper;
 
     public AlertScheduler(AlertRuleRepository rules, MessageLogRepository messageLog,
                           BotRegistry registry, FeishuSender sender, AlertRunLogRepository runLog,
-                          ObjectMapper objectMapper) {
+                          AlertLogRepository alertLog, ObjectMapper objectMapper) {
         this.rules = rules;
         this.messageLog = messageLog;
         this.registry = registry;
         this.sender = sender;
         this.runLog = runLog;
+        this.alertLog = alertLog;
         this.objectMapper = objectMapper;
     }
 
@@ -140,42 +144,66 @@ public class AlertScheduler {
     }
 
     private void sendAlert(AlertRule rule, long idleMinutes) {
+        String text = "[feishu-bot-proxy] 告警：机器人 " + rule.getBotKey()
+                + " 已 " + idleMinutes + " 分钟没有消息记录"
+                + "（阈值 " + rule.getThresholdMinutes() + " 分钟）";
+
         FeishuProperties.Bot alertBot = registry.get(rule.getAlertBotKey());
         if (alertBot == null) {
             log.warn("alert rule {} targets unknown bot {}", rule.getId(), rule.getAlertBotKey());
+            recordAlert(rule, idleMinutes, text, -1, "unknown alert bot: " + rule.getAlertBotKey());
             return;
         }
         if (!alertBot.isEnabled()) {
             log.warn("alert rule {} targets disabled bot {}", rule.getId(), rule.getAlertBotKey());
+            recordAlert(rule, idleMinutes, text, -1, "disabled alert bot: " + rule.getAlertBotKey());
             return;
         }
-
-        String text = "[feishu-bot-proxy] 告警：机器人 " + rule.getBotKey()
-                + " 已 " + idleMinutes + " 分钟没有消息记录"
-                + "（阈值 " + rule.getThresholdMinutes() + " 分钟）";
 
         // 若目标 bot 配置了关键词，带上第一个，好让飞书的关键词校验通过（与 /admin/test 一致）。
         List<String> keywords = alertBot.getKeywords();
         String prefix = (keywords == null || keywords.isEmpty()) ? "" : keywords.get(0) + " ";
 
+        String message = prefix + text;
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("msg_type", "text");
-        payload.putObject("content").put("text", prefix + text);
+        payload.putObject("content").put("text", message);
 
         byte[] body;
         try {
             body = objectMapper.writeValueAsBytes(payload);
         } catch (Exception e) {
             log.warn("alert rule {} failed to build payload", rule.getId(), e);
+            recordAlert(rule, idleMinutes, message, -1, "payload build failed");
             return;
         }
 
         SendResult result = sender.send(rule.getAlertBotKey(), alertBot, body, payload, "text", CLIENT_IP);
+        recordAlert(rule, idleMinutes, message, result.getCode(), result.getMsg());
         // 和其它消息一样留档：告警会出现在 /console/logs，方便事后确认「到底发出去没有」。
         messageLog.record(Collections.singletonList(rule.getAlertBotKey()), body, payload, CLIENT_IP,
                 result.getCode(), result.getMsg(), Collections.singletonList(result));
 
         log.info("alert fired rule={} bot={} alertBot={} code={} idleMinutes={}",
                 rule.getId(), rule.getBotKey(), rule.getAlertBotKey(), result.getCode(), idleMinutes);
+    }
+
+    /** 写一条告警事件日志。写失败绝不能反过来影响调度（与 recordRun 同语义）。 */
+    private void recordAlert(AlertRule rule, long idleMinutes, String message, int sendCode, String sendMsg) {
+        AlertLog entry = new AlertLog();
+        entry.setRuleId(rule.getId());
+        entry.setBotKey(rule.getBotKey());
+        entry.setAlertBotKey(rule.getAlertBotKey());
+        entry.setThresholdMinutes(rule.getThresholdMinutes());
+        entry.setIdleMinutes((int) idleMinutes);
+        entry.setMessage(message);
+        entry.setSendCode(sendCode);
+        entry.setSendMsg(sendMsg);
+        entry.setTriggeredAt(System.currentTimeMillis());
+        try {
+            alertLog.insert(entry);
+        } catch (RuntimeException e) {
+            log.warn("failed to persist alert log (ruleId={})", rule.getId(), e);
+        }
     }
 }

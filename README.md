@@ -224,6 +224,7 @@ curl -X POST http://localhost:8080/webhook/dev-group \
 | `/accounts.html` | **账号管理**：维护「我的账号」，封禁查询命中时自动回填状态/等级/总场次 |
 | `/alerts.html` | **告警配置**：配置存活告警规则 |
 | `/alert-runs.html` | **调度日志**：查看告警调度执行记录 |
+| `/alert-logs.html` | **告警日志**：查看每次告警触发的详情（规则 / 文案 / 发送结果） |
 
 登录账号由配置注入，生产用环境变量：
 

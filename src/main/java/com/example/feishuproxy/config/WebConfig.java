@@ -27,7 +27,7 @@ public class WebConfig implements WebMvcConfigurer {
         // 登录 / 登出 / 会话查询三个端点本身不拦，否则就没法登录了。
         registry.addInterceptor(adminSessionInterceptor)
                 .addPathPatterns("/home.html", "/console.html", "/bots.html", "/alerts.html",
-                        "/alert-runs.html", "/ban-check.html", "/accounts.html", "/console/**")
+                        "/alert-runs.html", "/alert-logs.html", "/ban-check.html", "/accounts.html", "/console/**")
                 .excludePathPatterns("/console/login", "/console/logout", "/console/session");
     }
 
