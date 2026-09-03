@@ -299,22 +299,12 @@ public class FeishuProperties {
     /** 每条入站消息的持久化位置。一个 Postgres 库，只追加，从不清理。 */
     public static class Store {
 
-        private boolean enabled = true;
-
-        /** 完整 JDBC URL，如 {@code jdbc:postgresql://.../postgres?sslmode=require}。 */
+        /** 完整 JDBC URL，如 {@code jdbc:postgresql://.../postgres?sslmode=require}。缺它应用无法启动。 */
         private String jdbcUrl = "";
 
         private String username = "";
 
         private String password = "";
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
 
         public String getJdbcUrl() {
             return jdbcUrl;

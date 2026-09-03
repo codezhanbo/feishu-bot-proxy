@@ -73,9 +73,12 @@
       : '<span class="badge ok">' + esc(r.banStatus || '未封禁') + '</span>';
     const rows = [
       ['玩家', esc(r.playerName || '—')],
+      ['平台', esc(r.platform || '—')],
       ['状态', statusBadge],
       ['类型', esc(r.banType || '—')],
       ['对局数', r.matchCount == null ? '—' : String(r.matchCount)],
+      ['总场次', r.totalMatches == null ? '—' : String(r.totalMatches)],
+      ['等级', esc(r.level || '—')],
       ['siteUUID', '<span class="clip">' + esc(r.siteUUID || '—') + '</span>'],
     ];
     $('result-body').innerHTML = '<table>' + rows.map(r =>

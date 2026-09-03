@@ -64,17 +64,20 @@ public class AlertConsoleController {
         return JsonResponses.ok(objectMapper, out);
     }
 
-    /** 调度执行日志，最新在前。数据库不可用时返回 503。 */
+    /** 调度执行日志，按执行时间倒序。可按状态 / 执行时间区间（from/to，epoch 毫秒）过滤。数据库不可用时返回 503。 */
     @GetMapping("/console/alert-runs")
-    public ResponseEntity<String> alertRuns(@RequestParam(defaultValue = "50") int limit,
+    public ResponseEntity<String> alertRuns(@RequestParam(required = false) String status,
+                                            @RequestParam(required = false) Long from,
+                                            @RequestParam(required = false) Long to,
+                                            @RequestParam(defaultValue = "20") int limit,
                                             @RequestParam(defaultValue = "0") int offset) {
-        List<AlertRunLog> runs = runLog.query(limit, offset);
+        List<AlertRunLog> runs = runLog.query(status, from, to, limit, offset);
         if (runs == null) {
             return JsonResponses.error(objectMapper, 503, 50301, "alert run log store unavailable");
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("count", runs.size());
-        out.put("total", runLog.total());
+        out.put("total", runLog.count(status, from, to));
         out.put("offset", Math.max(0, offset));
         out.put("maxLimit", AlertRunLogRepository.MAX_PAGE);
         out.put("records", runs);

@@ -1,13 +1,19 @@
 package com.example.feishuproxy.model;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /**
  * 一条告警调度执行记录：每次 {@code AlertScheduler.check()} 跑完写一行，落到 {@code alert_run_log} 表，
  * 供后台「调度日志」页查询。只追加，不清理。
  */
+@TableName("alert_run_log")
 public class AlertRunLog {
 
-    /** 自增主键；未落库前为 0。 */
-    private long id;
+    /** 自增主键；未落库前为 null。用包装类型，MyBatis-Plus 才能正确识别 AUTO 并回填生成键。 */
+    @TableId(type = IdType.AUTO)
+    private Long id;
     /** 本轮执行的起始时间（epoch 毫秒）。 */
     private long executedAt;
     /** 执行结果：{@code ok} 正常跑完；{@code skipped} 规则库不可用，本轮跳过。 */
@@ -21,11 +27,11 @@ public class AlertRunLog {
     /** 触发告警的规则明细（JSON 数组文本），本轮没有告警时为 null。 */
     private String detail;
 
-    public long getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(long id) {
+    public void setId(Long id) {
         this.id = id;
     }
 

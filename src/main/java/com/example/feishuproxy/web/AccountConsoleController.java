@@ -65,7 +65,7 @@ public class AccountConsoleController {
 
     /** 封禁查询历史，最新在前。数据库不可用时返回 503。 */
     @GetMapping("/console/ban-logs")
-    public ResponseEntity<String> banLogs(@RequestParam(defaultValue = "50") int limit,
+    public ResponseEntity<String> banLogs(@RequestParam(defaultValue = "20") int limit,
                                           @RequestParam(defaultValue = "0") int offset) {
         List<BanCheckLog> logs = banCheckLog.query(limit, offset);
         if (logs == null) {

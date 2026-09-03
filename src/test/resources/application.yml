@@ -1,3 +1,11 @@
+spring:
+  sql:
+    init:
+      # 每个 @SpringBootTest 启动时先建表。测试用 H2 内存库，schema.sql 与生产共用同一份。
+      # 生产仍是「手工执行」；这里仅为测试自动建表。
+      mode: always
+      schema-locations: classpath:db/schema.sql
+
 feishu:
   default-bot: plain
   access-token: ""
@@ -14,25 +22,33 @@ feishu:
   rate-limit:
     enabled: false
 
-  # store.jdbc-url 由 @DynamicPropertySource 在运行时注入，指向 H2 内存库。
-  store:
-    enabled: true
+  # 告警调度器的固定周期。拉长到 1 小时，避免 store 测试期间后台再跑一轮污染断言
+  # （首轮在上下文启动时仍会跑一次，但那时各表为空，只会往 alert_run_log 写一条 ok）。
+  alert:
+    check-interval-ms: 3600000
 
-  # webhook 地址由 @DynamicPropertySource 在运行时注入，指向 MockFeishuServer。
+  # store.jdbc-url 由 @DynamicPropertySource 在运行时注入，指向 H2 内存库。
+  # 建表交给上面的 spring.sql.init，启动不再自动建表。
+  store:
+    username: sa
+    password: ""
+
+  # webhook 地址：集成测试里由 WebhookControllerIntegrationTest 的 @DynamicPropertySource
+  # 覆盖成 MockFeishuServer 地址；store 测试（首次启动种子）则需要一个非空占位，因为 bot.webhook 非空。
   bots:
     plain:
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/test-plain
       secret: ""
       enabled: true
     signed:
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/test-signed
       secret: test-secret
       enabled: true
     second:
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/test-second
       secret: ""
       enabled: true
     paused:
+      webhook: https://open.feishu.cn/open-apis/bot/v2/hook/test-paused
       secret: ""
       enabled: false
-
-logging:
-  level:
-    com.example.feishuproxy: WARN

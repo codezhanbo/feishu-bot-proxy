@@ -39,6 +39,19 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
+        <!-- 数据库访问改走 MyBatis-Plus，不再手写 JDBC。 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+            <version>3.5.3.2</version>
+        </dependency>
+
+        <!-- 显式引入，保证 HikariCP 连接池与 spring-jdbc 在依赖树上（MyBatis-Plus 需要 DataSource）。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
         <!-- 测试里用 H2 的 PostgreSQL 兼容模式顶替真 Postgres，无需 Docker。 -->
         <dependency>
             <groupId>com.h2database</groupId>

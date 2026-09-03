@@ -114,7 +114,7 @@ public class AdminConsoleController {
                                        @RequestParam(required = false) String keyword,
                                        @RequestParam(required = false) Long from,
                                        @RequestParam(required = false) Long to,
-                                       @RequestParam(defaultValue = "50") int limit,
+                                       @RequestParam(defaultValue = "20") int limit,
                                        @RequestParam(defaultValue = "0") int offset) {
         if (!messageLog.isEnabled()) {
             return JsonResponses.error(objectMapper, 503, 50301, "message store unavailable");

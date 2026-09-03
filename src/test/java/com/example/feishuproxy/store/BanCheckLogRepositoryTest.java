@@ -1,37 +1,47 @@
 package com.example.feishuproxy.store;
 
-import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.model.BanCheckLog;
 import com.example.feishuproxy.model.BanCheckResult;
+import com.example.feishuproxy.store.mapper.BanCheckLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@SpringBootTest
 class BanCheckLogRepositoryTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static String freshH2() {
-        return "jdbc:h2:mem:banlog" + SEQ.incrementAndGet()
-                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+    @DynamicPropertySource
+    static void h2(DynamicPropertyRegistry registry) {
+        registry.add("feishu.store.jdbc-url", () ->
+                "jdbc:h2:mem:banlog" + SEQ.incrementAndGet()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
-    private static BanCheckLogRepository repository(String jdbcUrl) {
-        FeishuProperties properties = new FeishuProperties();
-        properties.getStore().setJdbcUrl(jdbcUrl);
-        properties.getStore().setUsername("sa");
-        properties.getStore().setPassword("");
-        return new BanCheckLogRepository(properties);
+    @Autowired
+    private BanCheckLogRepository repository;
+
+    @Autowired
+    private BanCheckLogMapper mapper;
+
+    @BeforeEach
+    void clear() {
+        mapper.delete(null);
     }
 
     private static BanCheckResult success(String banType, int matchCount) throws Exception {
@@ -43,7 +53,6 @@ class BanCheckLogRepositoryTest {
 
     @Test
     void appendsAndQueriesNewestFirst() throws Exception {
-        BanCheckLogRepository repository = repository(freshH2());
         assertEquals(0L, repository.total());
 
         repository.record("p1", "steam", success("Cheater", 42));
@@ -71,7 +80,6 @@ class BanCheckLogRepositoryTest {
 
     @Test
     void paginatesByOffset() throws Exception {
-        BanCheckLogRepository repository = repository(freshH2());
         for (int i = 0; i < 5; i++) {
             repository.record("p" + i, "steam", success("Cheater", i));
         }
@@ -79,14 +87,5 @@ class BanCheckLogRepositoryTest {
         assertEquals(2, repository.query(2, 0).size());
         assertEquals(2, repository.query(2, 2).size());
         assertEquals(1, repository.query(2, 4).size());
-    }
-
-    @Test
-    void recordIsBestEffortWhenNotConfigured() {
-        BanCheckLogRepository repository = new BanCheckLogRepository(new FeishuProperties());
-        assertNull(repository.query(10, 0));
-        assertEquals(0L, repository.total());
-        // record 是查询的旁路，未配置时静默跳过，不抛异常。
-        assertDoesNotThrow(() -> repository.record("p1", "steam", BanCheckResult.failure("boom")));
     }
 }

@@ -43,6 +43,14 @@ public class HttpClientConfig {
         RestTemplate restTemplate = builder
                 .setConnectTimeout(Duration.ofMillis(10_000))
                 .setReadTimeout(Duration.ofMillis(60_000))
+                // pubg.hk 挂在 Cloudflare 后面，开了「浏览器完整性检查」（error code 1010）：
+                // Java 默认的 User-Agent（Java/1.8.0_xxx）会被识别成非浏览器直接拦掉，
+                // 返回纯文本 "error code: 1010"，导致下游 JSON 解析失败。这里伪装成常见浏览器 UA。
+                .defaultHeader("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                + "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                .defaultHeader("Accept", "application/json, text/plain, */*")
+                .defaultHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .build();
 
         restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {

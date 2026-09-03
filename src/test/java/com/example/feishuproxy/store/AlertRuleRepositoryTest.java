@@ -1,8 +1,13 @@
 package com.example.feishuproxy.store;
 
-import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.model.AlertRule;
+import com.example.feishuproxy.store.mapper.AlertRuleMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -10,24 +15,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@SpringBootTest
 class AlertRuleRepositoryTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
-    private static String freshH2() {
-        return "jdbc:h2:mem:alert" + SEQ.incrementAndGet()
-                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+    @DynamicPropertySource
+    static void h2(DynamicPropertyRegistry registry) {
+        registry.add("feishu.store.jdbc-url", () ->
+                "jdbc:h2:mem:alert" + SEQ.incrementAndGet()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
-    private static AlertRuleRepository repository(String jdbcUrl) {
-        FeishuProperties properties = new FeishuProperties();
-        properties.getStore().setJdbcUrl(jdbcUrl);
-        properties.getStore().setUsername("sa");
-        properties.getStore().setPassword("");
-        return new AlertRuleRepository(properties);
+    @Autowired
+    private AlertRuleRepository repository;
+
+    @Autowired
+    private AlertRuleMapper mapper;
+
+    @BeforeEach
+    void clear() {
+        mapper.delete(null);
     }
 
     private static AlertRule rule(String botKey, int threshold, int cooldown, boolean enabled,
@@ -43,7 +53,6 @@ class AlertRuleRepositoryTest {
 
     @Test
     void crudRoundTrips() {
-        AlertRuleRepository repository = repository(freshH2());
         assertEquals(0, repository.findAll().size());
         assertNull(repository.find(1L));
 
@@ -74,7 +83,6 @@ class AlertRuleRepositoryTest {
 
     @Test
     void lastAlertAtIsPersistedSeparatelyFromConfig() {
-        AlertRuleRepository repository = repository(freshH2());
         long id = repository.insert(rule("dev-group", 30, 30, true, "ops-group"));
 
         long now = System.currentTimeMillis();
@@ -90,15 +98,5 @@ class AlertRuleRepositoryTest {
 
         repository.setLastAlertAt(id, null);
         assertNull(repository.find(id).getLastAlertAt(), "null 表示恢复，清掉告警态");
-    }
-
-    @Test
-    void returnsNullWhenNotConfigured() {
-        AlertRuleRepository repository = new AlertRuleRepository(new FeishuProperties());
-
-        assertNull(repository.findAll());
-        assertThrows(IllegalStateException.class,
-                () -> repository.insert(rule("dev", 30, 30, true, "ops")));
-        assertThrows(IllegalStateException.class, () -> repository.delete(1L));
     }
 }

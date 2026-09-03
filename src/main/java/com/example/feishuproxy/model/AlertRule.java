@@ -1,5 +1,11 @@
 package com.example.feishuproxy.model;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.example.feishuproxy.store.typehandler.BooleanToIntTypeHandler;
+
 /**
  * 一条存活告警规则：监控某个 bot（{@code botKey}）在 {@code message_log} 里是否已有
  * {@code thresholdMinutes} 分钟没有新消息记录，超时则向 {@code alertBotKey} 发告警。
@@ -8,10 +14,12 @@ package com.example.feishuproxy.model;
  * 它既用于冷却（超时持续期间按 {@code cooldownMinutes} 间隔重复提醒），也用于去重——
  * 所以需要持久化到 {@code alert_rule} 表，重启后仍保持正确。
  */
+@TableName("alert_rule")
 public class AlertRule {
 
-    /** 自增主键；未落库前为 0。 */
-    private long id;
+    /** 自增主键；未落库前为 null。用包装类型，MyBatis-Plus 才能正确识别 AUTO 并回填生成键。 */
+    @TableId(type = IdType.AUTO)
+    private Long id;
     /** 被监控的 botKey（即 dev-bot）。 */
     private String botKey;
     /** 超时阈值（分钟）：最近一条消息距今超过它就算超时。 */
@@ -19,6 +27,7 @@ public class AlertRule {
     /** 冷却间隔（分钟）：超时持续期间，隔这么久再重复发一条告警。 */
     private int cooldownMinutes;
     /** 监控开关。关闭后不检查、不发告警。 */
+    @TableField(typeHandler = BooleanToIntTypeHandler.class)
     private boolean enabled;
     /** 触发时把告警消息发往的 botKey。 */
     private String alertBotKey;
@@ -27,11 +36,11 @@ public class AlertRule {
     private long createdAt;
     private long updatedAt;
 
-    public long getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(long id) {
+    public void setId(Long id) {
         this.id = id;
     }
 

@@ -1,5 +1,9 @@
 package com.example.feishuproxy.model;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /**
  * 一条「我的账号」记录，对应 {@code account} 表的一行。
  * <p>
@@ -7,9 +11,11 @@ package com.example.feishuproxy.model;
  * {@code banStatus}（正常/封禁）、{@code lastCheckedAt}（最后查询时间）与 {@code totalMatches}
  * （总场次）在对该账号执行封禁查询时由 {@code AccountRepository.updateFromCheck} 自动更新。
  */
+@TableName("account")
 public class Account {
 
     /** 账号ID，即查询时的玩家昵称；主键，建好后不可改。 */
+    @TableId(type = IdType.INPUT)
     private String accountId;
     /** 封禁状态：正常 / 封禁。 */
     private String banStatus;

@@ -60,9 +60,12 @@ public class PubgBanController {
         out.put("success", result.isSuccess());
         if (result.isSuccess()) {
             out.put("playerName", result.getPlayerName());
+            out.put("platform", result.getPlatform());
             out.put("banStatus", result.getBanStatus());
             out.put("banType", result.getBanType());
             out.put("matchCount", result.getMatchCount());
+            out.put("level", result.getLevelText());
+            out.put("totalMatches", result.getTotalMatches());
             out.put("siteUUID", result.getSiteUUID());
         } else {
             out.put("error", result.getError());

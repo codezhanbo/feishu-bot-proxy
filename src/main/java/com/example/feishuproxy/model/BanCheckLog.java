@@ -1,5 +1,11 @@
 package com.example.feishuproxy.model;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.example.feishuproxy.store.typehandler.BooleanToIntTypeHandler;
+
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -10,14 +16,17 @@ import java.time.format.DateTimeFormatter;
  * 成功与失败共用同一个类型：失败时 {@link #isSuccess()} 为 false，结果类字段（封禁状态、
  * 类型、对局数、总场次、等级、siteUUID）全为 null，错误原因放在 {@link #getError()}。
  */
+@TableName("ban_check_log")
 public class BanCheckLog {
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
-    private long id;
+    @TableId(type = IdType.AUTO)
+    private Long id;
     private String player;
     private String platform;
+    @TableField(typeHandler = BooleanToIntTypeHandler.class)
     private boolean success;
     private String banStatus;
     private String banType;
@@ -34,11 +43,11 @@ public class BanCheckLog {
         return FORMATTER.format(Instant.ofEpochMilli(epochMillis));
     }
 
-    public long getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(long id) {
+    public void setId(Long id) {
         this.id = id;
     }
 

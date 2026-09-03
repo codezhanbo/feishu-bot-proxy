@@ -11,6 +11,8 @@ server:
 spring:
   application:
     name: feishu-bot-proxy
+#  profiles:
+#    active: local
 
 feishu:
   # POST /webhook（路径里不带 botKey）走哪个机器人。
@@ -38,8 +40,7 @@ feishu:
     wait-timeout-ms: 1000        # 等令牌最多阻塞这么久，超时就返回 429
 
   store:
-    enabled: true
-    # 走 Supabase 的 Session Pooler（IPv4，适配 Render）。表由启动时自动建，无需手工执行 DDL。
+    # 走 Supabase 的 Session Pooler（IPv4，适配 Render）。启动前需先对库执行 db/schema.sql 建表。
     jdbc-url: ${FEISHU_STORE_JDBC_URL:}   # jdbc:postgresql://aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
     username: ${FEISHU_STORE_USERNAME:}
     password: ${FEISHU_STORE_PASSWORD:}
@@ -53,6 +54,4 @@ feishu:
   alert:
     check-interval-ms: 60000               # 告警调度器两轮检查之间的间隔（毫秒）
 
-logging:
-  level:
-    com.example.feishuproxy: INFO
+# 日志级别统一在 src/main/resources/logback-spring.xml 里管理（控制台 + logs/app.log）。

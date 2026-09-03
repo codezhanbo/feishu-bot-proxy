@@ -73,4 +73,5 @@ public class PubgBanClient {
             throw new IllegalStateException("UTF-8 不可用", e);
         }
     }
+
 }

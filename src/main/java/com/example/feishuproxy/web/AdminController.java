@@ -74,7 +74,7 @@ public class AdminController {
     @GetMapping("/admin/logs")
     public ResponseEntity<String> logs(@RequestParam(value = "botKey", required = false) String botKey,
                                        @RequestParam(value = "success", required = false) Boolean success,
-                                       @RequestParam(value = "limit", defaultValue = "50") int limit,
+                                       @RequestParam(value = "limit", defaultValue = "20") int limit,
                                        @RequestParam(value = "offset", defaultValue = "0") int offset) {
         if (!messageLog.isEnabled()) {
             return JsonResponses.error(objectMapper, 503, 50301, "message store unavailable");

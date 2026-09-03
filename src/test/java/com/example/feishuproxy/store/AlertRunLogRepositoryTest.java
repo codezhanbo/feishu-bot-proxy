@@ -1,31 +1,46 @@
 package com.example.feishuproxy.store;
 
-import com.example.feishuproxy.config.FeishuProperties;
+import com.example.feishuproxy.core.AlertScheduler;
 import com.example.feishuproxy.model.AlertRunLog;
+import com.example.feishuproxy.store.mapper.AlertRunLogMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@SpringBootTest
 class AlertRunLogRepositoryTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
-    private static String freshH2() {
-        return "jdbc:h2:mem:runlog" + SEQ.incrementAndGet()
-                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+    @DynamicPropertySource
+    static void h2(DynamicPropertyRegistry registry) {
+        registry.add("feishu.store.jdbc-url", () ->
+                "jdbc:h2:mem:runlog" + SEQ.incrementAndGet()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
-    private static AlertRunLogRepository repository(String jdbcUrl) {
-        FeishuProperties properties = new FeishuProperties();
-        properties.getStore().setJdbcUrl(jdbcUrl);
-        properties.getStore().setUsername("sa");
-        properties.getStore().setPassword("");
-        return new AlertRunLogRepository(properties);
+    @Autowired
+    private AlertRunLogRepository repository;
+
+    @Autowired
+    private AlertRunLogMapper mapper;
+
+    // 替换掉真实的调度器，避免它每轮往 alert_run_log 追加「ok/skipped」执行日志污染本测试的计数断言。
+    @MockBean
+    private AlertScheduler scheduler;
+
+    @BeforeEach
+    void clear() {
+        mapper.delete(null);
     }
 
     private static AlertRunLog logEntry(String status, int scanned, int fired, String detail) {
@@ -41,7 +56,6 @@ class AlertRunLogRepositoryTest {
 
     @Test
     void appendsAndQueriesNewestFirst() {
-        AlertRunLogRepository repository = repository(freshH2());
         assertEquals(0L, repository.total());
 
         repository.insert(logEntry("ok", 2, 0, null));
@@ -59,7 +73,6 @@ class AlertRunLogRepositoryTest {
 
     @Test
     void paginatesByOffset() {
-        AlertRunLogRepository repository = repository(freshH2());
         for (int i = 0; i < 5; i++) {
             repository.insert(logEntry("ok", 1, i, null));
         }
@@ -67,13 +80,5 @@ class AlertRunLogRepositoryTest {
         assertEquals(2, repository.query(2, 0).size());
         assertEquals(2, repository.query(2, 2).size());
         assertEquals(1, repository.query(2, 4).size());
-    }
-
-    @Test
-    void returnsNullWhenNotConfigured() {
-        AlertRunLogRepository repository = new AlertRunLogRepository(new FeishuProperties());
-        assertNull(repository.query(10, 0));
-        assertEquals(0L, repository.total());
-        assertThrows(IllegalStateException.class, () -> repository.insert(logEntry("ok", 1, 0, null)));
     }
 }

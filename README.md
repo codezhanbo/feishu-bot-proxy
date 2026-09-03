@@ -2,7 +2,7 @@
 
 飞书自定义机器人 webhook 的**中转服务**。应用不再直连 `open.feishu.cn`，改为调这个服务，由它统一转发。
 
-Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-starter-web` 和 `postgresql`（测试另用 H2）。
+Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖：`spring-boot-starter-web`、`mybatis-plus-boot-starter`（数据访问）、`spring-boot-starter-jdbc`、`postgresql`（测试另用 H2）；日志用 Logback（Spring Boot 自带）。
 
 ## 解决什么问题
 
@@ -36,6 +36,9 @@ Java 8 · Spring Boot 2.7.18 · Maven · 第三方依赖只有 `spring-boot-star
 > **机器人现在存在数据库里**，在后台「Bot 配置」页管理。下面 yaml 里的 `feishu.bots` 与
 > `feishu.default-bot` **只作为首次启动的种子**——`bot` 表为空时自动导入一次，之后以数据库为准，
 > 改 yaml 不再生效。要增删改机器人，请登录后台到 `/bots.html`。
+>
+> **启动前必须先建表**：本服务不再在启动时自动建表，所有建表/改表语句集中在
+> `src/main/resources/db/schema.sql`，部署前先对目标库手工执行一次（见下文「运行」）。
 
 `src/main/resources/application.yml` 里的 `feishu.bots`，key 就是 URL 里的 `{botKey}`：
 
@@ -58,8 +61,7 @@ feishu:
     wait-timeout-ms: 1000       # 排队等不到令牌就返回 429
 
   store:
-    enabled: true               # 关掉则不落库，/admin/logs 返回 503
-    jdbc-url: ${FEISHU_STORE_JDBC_URL}   # Supabase 的 Session Pooler 连接串
+    jdbc-url: ${FEISHU_STORE_JDBC_URL}   # Supabase 的 Session Pooler 连接串（必填，缺了启动即失败）
     username: ${FEISHU_STORE_USERNAME}   # 形如 postgres.<project-ref>
     password: ${FEISHU_STORE_PASSWORD}
 
@@ -152,7 +154,7 @@ select stat_date, survival_level, bp_gained, exp_gained, duration
 - **发送失败的战报照样算作「上一条」**：游戏侧的累计值已经涨上去了，跳过它会让下一条的增量翻倍。
 - 非战报消息这 5 列全为 NULL，`stats` 字段为 `null`。
 
-这 5 列是后加的。已有的库启动时会自动 `ALTER TABLE` 补上，日志里会打 `message store migrated: added column ...`；**旧行不回填**，保持 NULL。
+这 5 列是后加的。新库由 `schema.sql` 一次建全；老库升级需手工执行 `schema.sql` 文件末尾「历史升级」一节里注释掉的 `ALTER TABLE` 补列，**旧行不回填**，保持 NULL。
 
 ## 错误码
 
@@ -179,7 +181,13 @@ select stat_date, survival_level, bp_gained, exp_gained, duration
 ## 运行
 
 ```bash
+# 1. 先对目标库执行建表脚本（只做一次；全部 CREATE TABLE IF NOT EXISTS，重复执行安全）
+psql "$DATABASE_URL" -f src/main/resources/db/schema.sql
+
+# 2. 构建
 mvn package
+
+# 3. 启动（store.jdbc-url 必填，缺了会启动失败）
 java -jar target/feishu-bot-proxy-1.0.0.jar
 
 # 覆盖配置
@@ -204,7 +212,7 @@ curl -X POST http://localhost:8080/webhook/dev-group \
 
 ## 后台管理界面
 
-内置三个页面，走**会话登录**（账号密码），与 webhook 的 `X-Api-Token` 完全独立：
+内置多个页面，走**会话登录**（账号密码），与 webhook 的 `X-Api-Token` 完全独立：
 
 | 路径 | 说明 |
 |---|---|
@@ -212,6 +220,10 @@ curl -X POST http://localhost:8080/webhook/dev-group \
 | `/home.html` | 菜单页（导航），列出各功能入口 |
 | `/console.html` | 查询 `message_log`，支持按 botKey / 成功失败 / 关键字 / 时间范围过滤 + 分页，点行看详情 |
 | `/bots.html` | **机器人配置**：增删改 bot、设默认机器人，改完即时生效（无需重启） |
+| `/ban-check.html` | **封禁查询**：调 pubg.hk 查玩家封禁状态 |
+| `/accounts.html` | **账号管理**：维护「我的账号」，封禁查询命中时自动回填状态/等级/总场次 |
+| `/alerts.html` | **告警配置**：配置存活告警规则 |
+| `/alert-runs.html` | **调度日志**：查看告警调度执行记录 |
 
 登录账号由配置注入，生产用环境变量：
 
@@ -228,13 +240,39 @@ feishu:
   要等另一台重启（或后续再加轮询同步）。
 - 根路径 `/` 会自动跳到登录页。
 
+## 封禁查询与账号管理
+
+后台「封禁查询」页调 pubg.hk（`https://pubg.hk`，非官方数据源）查玩家封禁状态，走会话鉴权，
+无论查到与否都回 200（「查无此人」是业务结果，不用 HTTP 状态码表达）。
+
+**每次查询都留档**到 `ban_check_log` 表——成功失败都写、一次查询一行、只追加不清理：
+
+```sql
+select queried_datetime, player, platform, success, ban_status, level, total_matches
+  from ban_check_log order by id desc;
+```
+
+**「我的账号」表 `account`** 用来登记自己的账号。账号手动添加（`account_id` 即玩家昵称，`level` 可选）；
+之后每次对该账号做封禁查询，会自动回填：
+
+| 列 | 含义 | 谁来维护 |
+|---|---|---|
+| `account_id` | 玩家昵称（主键） | 手动添加 |
+| `ban_status` | `正常` / `封禁` | 查询自动更新 |
+| `level` | 等级，展示为「段 + 级」如 `5段109级` | 查询自动更新 |
+| `last_checked_at` | 最后查询时间 `yyyy-MM-dd HH:mm:ss` | 查询自动更新 |
+| `total_matches` | 总场次（pubg.hk 的 `totalMatches`） | 查询自动更新 |
+
+等级由 pubg.hk 的 `survivalTier`（1~5 段）与 `survivalLevel`（段内 1~500 级）拼成，如 5 段 + 109 级 → `5段109级`。
+「总场次」取 `totalMatches`，不是 `matchCount`（那是「对局数」）。这两张表与其它表一样，建表语句都在 `schema.sql` 里，启动前手工执行一次。
+
 ## 测试
 
 ```bash
-mvn test    # 88 个用例
+mvn test    # 112 个用例
 ```
 
-用 JDK 自带的 `com.sun.net.httpserver` 起本地 mock 顶替 open.feishu.cn，**不需要真实机器人**即可跑通全链路，覆盖：字节级透传（含中文和 emoji）、加签注入（对照 openssl 独立复算的黄金向量）、9499 与 11232 重试、19021 不重试、限流拦截、各类错误响应、消息落库与重开库后仍在、战报数值解析与增量差分、旧库自动补列。
+用 JDK 自带的 `com.sun.net.httpserver` 起本地 mock 顶替 open.feishu.cn，**不需要真实机器人**即可跑通全链路，覆盖：字节级透传（含中文和 emoji）、加签注入（对照 openssl 独立复算的黄金向量）、9499 与 11232 重试、19021 不重试、限流拦截、各类错误响应、消息落库、战报数值解析与增量差分、各仓储 CRUD 与首次启动种子。store 测试改用 H2 内存库 + `spring.sql.init` 自动加载 `schema.sql`，与生产共用同一份建表脚本。
 
 ## 已知限制
 

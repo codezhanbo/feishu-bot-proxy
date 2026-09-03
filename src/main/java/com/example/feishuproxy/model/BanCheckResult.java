@@ -16,6 +16,7 @@ public final class BanCheckResult {
     private final boolean success;
     private final String error;
     private final String playerName;
+    private final String platform;
     private final String banStatus;
     private final String banType;
     private final Integer matchCount;
@@ -25,13 +26,14 @@ public final class BanCheckResult {
     private final Integer totalLevel;
     private final Integer totalMatches;
 
-    private BanCheckResult(boolean success, String error, String playerName, String banStatus,
-                           String banType, Integer matchCount, String siteUUID,
+    private BanCheckResult(boolean success, String error, String playerName, String platform,
+                           String banStatus, String banType, Integer matchCount, String siteUUID,
                            Integer survivalLevel, Integer survivalTier, Integer totalLevel,
                            Integer totalMatches) {
         this.success = success;
         this.error = error;
         this.playerName = playerName;
+        this.platform = platform;
         this.banStatus = banStatus;
         this.banType = banType;
         this.matchCount = matchCount;
@@ -44,19 +46,20 @@ public final class BanCheckResult {
 
     /**
      * 从 pubg.hk 的原始响应解析。响应形如
-     * {@code {"success":true,"data":{"siteUUID":"...","playerName":"...","banStatus":"未封禁",
-     * "banType":"Innocent","matchCount":1080,"survivalLevel":109,"survivalTier":5,
+     * {@code {"success":true,"data":{"siteUUID":"...","playerName":"...","platform":"steam",
+     * "banStatus":"未封禁","banType":"Innocent","matchCount":1080,"survivalLevel":109,"survivalTier":5,
      * "totalLevel":2109,"totalMatches":8496,"matchIDs":[...]}}}。
      */
     public static BanCheckResult from(JsonNode body) {
         if (body == null || !body.path("success").asBoolean(false)) {
             String error = body == null ? "空响应"
                     : body.path("error").asText(body.path("msg").asText("查询失败"));
-            return new BanCheckResult(false, error, null, null, null, null, null, null, null, null, null);
+            return new BanCheckResult(false, error, null, null, null, null, null, null, null, null, null, null);
         }
         JsonNode data = body.path("data");
         return new BanCheckResult(true, null,
                 textOrNull(data, "playerName"),
+                textOrNull(data, "platform"),
                 textOrNull(data, "banStatus"),
                 textOrNull(data, "banType"),
                 intOrNull(data, "matchCount"),
@@ -69,7 +72,7 @@ public final class BanCheckResult {
 
     /** 构造一个失败结果，错误信息如实带上游/网络的原文。 */
     public static BanCheckResult failure(String error) {
-        return new BanCheckResult(false, error, null, null, null, null, null, null, null, null, null);
+        return new BanCheckResult(false, error, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -103,6 +106,11 @@ public final class BanCheckResult {
 
     public String getPlayerName() {
         return playerName;
+    }
+
+    /** 平台，如 steam / kakao / console。取上游响应的 {@code data.platform}，未返回时为 null。 */
+    public String getPlatform() {
+        return platform;
     }
 
     public String getBanStatus() {

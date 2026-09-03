@@ -42,7 +42,13 @@
         <label>关键字<input id="keyword" placeholder="标题 / 正文 / 预览"></label>
         <label>起始时间<input type="datetime-local" id="from"></label>
         <label>结束时间<input type="datetime-local" id="to"></label>
-        <label>每页条数<input type="number" id="limit" value="50" min="1" max="200"></label>
+        <label>每页条数
+          <select id="limit">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
         <button id="query">查询</button>
         <button id="reset" class="ghost">重置</button>
       </section>
@@ -99,7 +105,7 @@
     const from = epochOf('from'), to = epochOf('to');
     if (from !== null) p.set('from', from);
     if (to !== null) p.set('to', to);
-    p.set('limit', limit || '50');
+    p.set('limit', limit || '20');
     p.set('offset', offset);
     return p;
   }
@@ -133,8 +139,8 @@
     }
 
     document.getElementById('prev').disabled = offset <= 0;
-    document.getElementById('next').disabled = lastCount < parseInt(document.getElementById('limit').value || '50', 10);
-    document.getElementById('page').textContent = '第 ' + (offset / Math.max(1, parseInt(document.getElementById('limit').value || '50', 10)) + 1) + ' 页';
+    document.getElementById('next').disabled = lastCount < parseInt(document.getElementById('limit').value || '20', 10);
+    document.getElementById('page').textContent = '第 ' + (offset / Math.max(1, parseInt(document.getElementById('limit').value || '20', 10)) + 1) + ' 页';
   }
 
   function statOf(r, key) {
@@ -193,17 +199,17 @@
   document.getElementById('reset').addEventListener('click', () => {
     ['botKey','keyword','from','to'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('success').value = '';
-    document.getElementById('limit').value = '50';
+    document.getElementById('limit').value = '20';
     offset = 0;
     load();
   });
   document.getElementById('prev').addEventListener('click', () => {
-    const n = Math.max(0, offset - parseInt(document.getElementById('limit').value || '50', 10));
+    const n = Math.max(0, offset - parseInt(document.getElementById('limit').value || '20', 10));
     offset = n;
     load();
   });
   document.getElementById('next').addEventListener('click', () => {
-    offset += parseInt(document.getElementById('limit').value || '50', 10);
+    offset += parseInt(document.getElementById('limit').value || '20', 10);
     load();
   });
 

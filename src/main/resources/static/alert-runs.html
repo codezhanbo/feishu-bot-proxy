@@ -9,9 +9,10 @@
   .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; background:var(--card);
              border:1px solid var(--line); border-radius:12px; padding:16px; }
   .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
-  .filters input { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
-  .filters input:focus { outline:none; border-color:var(--accent); }
+  .filters input, .filters select { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
+  .filters input:focus, .filters select:focus { outline:none; border-color:var(--accent); }
   .filters button { padding:8px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .filters button.ghost { background:var(--card); color:var(--text); border:1px solid var(--line); }
   .meta { margin:16px 2px; color:var(--muted); font-size:13px; }
   .table-wrap { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:auto; }
   thead th { position:sticky; top:0; }
@@ -30,8 +31,23 @@
     <aside id="sidebar" class="sidebar"></aside>
     <main class="content">
       <section class="filters">
-        <label>每页条数<input type="number" id="limit" value="50" min="1" max="200"></label>
-        <button id="query">刷新</button>
+        <label>执行时间<input type="date" id="date"></label>
+        <label>状态
+          <select id="status">
+            <option value="">全部</option>
+            <option value="ok">正常</option>
+            <option value="skipped">跳过</option>
+          </select>
+        </label>
+        <label>每页条数
+          <select id="limit">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <button id="query">查询</button>
+        <button id="reset" class="ghost">重置</button>
       </section>
 
       <div class="meta" id="meta"></div>
@@ -77,11 +93,35 @@
       : '<span class="badge ok">正常</span>';
   }
 
+  function todayStr() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  // 一个自然日对应的 [from, to) 半开区间（epoch 毫秒，本地时区）。空日期 => 不限时间。
+  function dayRange(dateStr) {
+    if (!dateStr) return { from: null, to: null };
+    const start = new Date(dateStr + 'T00:00:00');
+    return { from: start.getTime(), to: start.getTime() + 86400000 };
+  }
+
+  function buildParams() {
+    const p = new URLSearchParams();
+    const status = document.getElementById('status').value;
+    const range = dayRange(document.getElementById('date').value);
+    if (status) p.set('status', status);
+    if (range.from !== null) p.set('from', range.from);
+    if (range.to !== null) p.set('to', range.to);
+    p.set('limit', document.getElementById('limit').value || '20');
+    p.set('offset', offset);
+    return p;
+  }
+
   async function load() {
     tbody.innerHTML = '<tr><td colspan="6" class="muted">加载中…</td></tr>';
-    const limit = document.getElementById('limit').value;
     try {
-      const res = await fetch('/console/alert-runs?limit=' + limit + '&offset=' + offset);
+      const res = await fetch('/console/alert-runs?' + buildParams());
       if (res.status === 401) { location.replace('/login.html'); return; }
       const j = await res.json();
       render(j);
@@ -101,7 +141,7 @@
       tbody.innerHTML = j.records.map(r => rowHtml(r)).join('');
     }
 
-    const limit = parseInt(document.getElementById('limit').value || '50', 10);
+    const limit = parseInt(document.getElementById('limit').value || '20', 10);
     document.getElementById('prev').disabled = offset <= 0;
     document.getElementById('next').disabled = lastCount < limit;
     document.getElementById('page').textContent =
@@ -136,23 +176,30 @@
     const tr = e.target.closest('tr[data-id]');
     if (!tr) return;
     const id = tr.getAttribute('data-id');
-    const limit = document.getElementById('limit').value;
-    fetch('/console/alert-runs?limit=' + limit + '&offset=' + offset).then(r => r.json()).then(j => {
+    fetch('/console/alert-runs?' + buildParams()).then(r => r.json()).then(j => {
       const rec = (j.records || []).find(x => String(x.id) === id);
       if (rec) showDetail(rec);
     });
   });
 
   document.getElementById('query').addEventListener('click', () => { offset = 0; load(); });
+  document.getElementById('reset').addEventListener('click', () => {
+    document.getElementById('date').value = todayStr();
+    document.getElementById('status').value = '';
+    document.getElementById('limit').value = '20';
+    offset = 0;
+    load();
+  });
   document.getElementById('prev').addEventListener('click', () => {
-    offset = Math.max(0, offset - parseInt(document.getElementById('limit').value || '50', 10));
+    offset = Math.max(0, offset - parseInt(document.getElementById('limit').value || '20', 10));
     load();
   });
   document.getElementById('next').addEventListener('click', () => {
-    offset += parseInt(document.getElementById('limit').value || '50', 10);
+    offset += parseInt(document.getElementById('limit').value || '20', 10);
     load();
   });
 
+  document.getElementById('date').value = todayStr();
   load();
 </script>
 <script src="/layout.js"></script>
