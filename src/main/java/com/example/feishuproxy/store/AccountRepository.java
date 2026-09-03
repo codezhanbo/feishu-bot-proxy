@@ -22,8 +22,13 @@ public class AccountRepository {
 
     private static final Logger log = LoggerFactory.getLogger(AccountRepository.class);
 
-    /** 封禁查询自动更新时，把上游的 banType 归一成这两个字面量，与表默认值一致。 */
+    /** 封禁查询自动更新时，把上游结果归一成这几个字面量，与表默认值一致。 */
     public static final String NORMAL = "正常";
+    /** 临时封禁：上游中文 banStatus 含「临时」时归到这里。 */
+    public static final String TEMP_BANNED = "临时封禁";
+    /** 永久封禁：上游中文 banStatus 含「永久」时归到这里。 */
+    public static final String PERM_BANNED = "永久封禁";
+    /** 兜底值：上游只给了 banType（非 innocent）而没有中文 banStatus 时用。 */
     public static final String BANNED = "封禁";
 
     private final AccountMapper mapper;

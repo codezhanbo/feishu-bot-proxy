@@ -1,5 +1,6 @@
 package com.example.feishuproxy.store;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.model.BanCheckLog;
 import com.example.feishuproxy.model.BanCheckResult;
 import com.example.feishuproxy.store.mapper.BanCheckLogMapper;
@@ -87,5 +88,23 @@ class BanCheckLogRepositoryTest {
         assertEquals(2, repository.query(2, 0).size());
         assertEquals(2, repository.query(2, 2).size());
         assertEquals(1, repository.query(2, 4).size());
+    }
+
+    @Test
+    void repairRewritesStaleQueriedDatetime() throws Exception {
+        repository.record("p1", "steam", success("Cheater", 42));
+
+        BanCheckLog entity = mapper.selectList(null).get(0);
+        Long id = entity.getId();
+        String correct = BanCheckLog.format(entity.getQueriedAt());
+        mapper.update(null, new LambdaUpdateWrapper<BanCheckLog>()
+                .eq(BanCheckLog::getId, id)
+                .set(BanCheckLog::getQueriedDatetime, "1970-01-01 00:00:00"));
+
+        assertEquals(1, repository.repairQueriedDatetime(200), "应修复被改坏的那一行");
+        assertEquals(correct, mapper.selectById(id).getQueriedDatetime(),
+                "修复后与权威 queried_at 重算出的北京时间一致");
+
+        assertEquals(0, repository.repairQueriedDatetime(200), "第二次跑应是 no-op");
     }
 }

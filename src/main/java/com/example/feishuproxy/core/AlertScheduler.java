@@ -59,7 +59,7 @@ public class AlertScheduler {
         this.objectMapper = objectMapper;
     }
 
-    @Scheduled(fixedDelayString = "${feishu.alert.check-interval-ms:60000}")
+    @Scheduled(fixedDelayString = "${feishu.alert.check-interval-ms:600000}")
     public void check() {
         long startedAt = System.currentTimeMillis();
         List<AlertRule> list = rules.findAll();

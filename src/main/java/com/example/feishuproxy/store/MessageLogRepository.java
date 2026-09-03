@@ -1,5 +1,7 @@
 package com.example.feishuproxy.store;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.core.GameStatsParser;
 import com.example.feishuproxy.core.MessagePreview;
@@ -82,6 +84,52 @@ public class MessageLogRepository {
 
     public long total() {
         return total.get();
+    }
+
+    /**
+     * 修复老数据：早期版本用 {@code ZoneId.systemDefault()}（容器里是 UTC）把 {@code create_datetime}
+     * 烧成了慢 8 小时的值。这里按权威的 {@code created_at}（epoch 毫秒）重算，只改不一致的行。
+     * <p>
+     * 幂等、可反复跑：改对后下次扫描到的不一致行为 0，不会重复写。走轻量列 + 按主键升序翻页，
+     * 不把 {@code body} 等大列拖进内存。库不可用或中途出错返回 0（只记日志，绝不抛异常）。
+     *
+     * @return 本轮实际修复的行数
+     */
+    public int repairCreateDatetime(int batchSize) {
+        int fixed = 0;
+        int limit = Math.max(1, Math.min(batchSize, MAX_PAGE));
+        Long afterId = null;
+        try {
+            while (true) {
+                LambdaQueryWrapper<MessageLogEntity> wrapper = new LambdaQueryWrapper<MessageLogEntity>()
+                        .select(MessageLogEntity::getId, MessageLogEntity::getCreatedAt, MessageLogEntity::getCreateDatetime)
+                        .orderByAsc(MessageLogEntity::getId)
+                        .last("LIMIT " + limit);
+                if (afterId != null) {
+                    wrapper.gt(MessageLogEntity::getId, afterId);
+                }
+                List<MessageLogEntity> batch = mapper.selectList(wrapper);
+                if (batch == null || batch.isEmpty()) {
+                    break;
+                }
+                for (MessageLogEntity e : batch) {
+                    String correct = MessageLog.formatDateTime(e.getCreatedAt());
+                    if (!correct.equals(e.getCreateDatetime())) {
+                        mapper.update(null, new LambdaUpdateWrapper<MessageLogEntity>()
+                                .eq(MessageLogEntity::getId, e.getId())
+                                .set(MessageLogEntity::getCreateDatetime, correct));
+                        fixed++;
+                    }
+                }
+                if (batch.size() < limit) {
+                    break; // 已到最后一页
+                }
+                afterId = batch.get(batch.size() - 1).getId();
+            }
+        } catch (Exception e) {
+            log.warn("failed to repair message_log create_datetime", e);
+        }
+        return fixed;
     }
 
     /**

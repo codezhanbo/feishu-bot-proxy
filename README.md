@@ -258,7 +258,7 @@ select queried_datetime, player, platform, success, ban_status, level, total_mat
 | 列 | 含义 | 谁来维护 |
 |---|---|---|
 | `account_id` | 玩家昵称（主键） | 手动添加 |
-| `ban_status` | `正常` / `封禁` | 查询自动更新 |
+| `ban_status` | `正常` / `临时封禁` / `永久封禁` | 查询自动更新 |
 | `level` | 等级，展示为「段 + 级」如 `5段109级` | 查询自动更新 |
 | `last_checked_at` | 最后查询时间 `yyyy-MM-dd HH:mm:ss` | 查询自动更新 |
 | `total_matches` | 总场次（pubg.hk 的 `totalMatches`） | 查询自动更新 |

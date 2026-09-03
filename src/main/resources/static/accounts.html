@@ -169,10 +169,13 @@
     renderLogs(logList || {});
   }
 
+  // 封禁状态分三档：正常(绿) / 临时封禁(橙) / 永久封禁(红)。
   function statusBadge(s) {
-    if (s === '封禁') return '<span class="badge bad">封禁</span>';
-    if (s === '正常') return '<span class="badge ok">正常</span>';
-    return '<span class="muted">' + esc(s || '—') + '</span>';
+    if (!s) return '<span class="muted">—</span>';
+    if (s.indexOf('永久') >= 0) return '<span class="badge bad">' + esc(s) + '</span>';
+    if (s.indexOf('临时') >= 0) return '<span class="badge warn">' + esc(s) + '</span>';
+    if (s === '正常' || s === '未封禁') return '<span class="badge ok">' + esc(s) + '</span>';
+    return '<span class="badge bad">' + esc(s) + '</span>';
   }
 
   function renderTable() {
@@ -210,7 +213,7 @@
           '<td>' + esc(r.player) + '</td>' +
           '<td>' + esc(r.platform) + '</td>' +
           '<td>' + ok + '</td>' +
-          '<td>' + esc(r.banStatus || '—') + '</td>' +
+          '<td>' + statusBadge(r.banStatus) + '</td>' +
           '<td>' + esc(r.level || '—') + '</td>' +
           '<td>' + (r.totalMatches == null ? '—' : esc(r.totalMatches)) + '</td>' +
           '</tr>';

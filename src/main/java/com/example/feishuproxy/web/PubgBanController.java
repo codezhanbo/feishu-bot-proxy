@@ -73,8 +73,25 @@ public class PubgBanController {
         return JsonResponses.ok(objectMapper, out);
     }
 
-    /** 把上游的 banType 归一成账号表的两态「正常/封禁」。与 ban-check 页面的判定一致。 */
-    private static String toBanStatus(BanCheckResult result) {
+    /**
+     * 把上游结果归一成账号表的封禁状态（正常 / 临时封禁 / 永久封禁）。优先看中文 {@code banStatus}
+     * ——含「永久」→永久封禁、含「临时」→临时封禁、含「正常/未封禁」→正常；上游没给中文值时退回
+     * {@code banType}（innocent → 正常，其余 → 封禁兜底）。与各页面的判定一致。
+     */
+    static String toBanStatus(BanCheckResult result) {
+        String status = result.getBanStatus();
+        if (status != null) {
+            String s = status.trim();
+            if (s.contains("永久")) {
+                return AccountRepository.PERM_BANNED;
+            }
+            if (s.contains("临时")) {
+                return AccountRepository.TEMP_BANNED;
+            }
+            if (s.contains("正常") || s.contains("未封禁")) {
+                return AccountRepository.NORMAL;
+            }
+        }
         String type = result.getBanType();
         return type != null && !"innocent".equalsIgnoreCase(type)
                 ? AccountRepository.BANNED : AccountRepository.NORMAL;

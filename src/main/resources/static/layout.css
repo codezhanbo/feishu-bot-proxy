@@ -25,6 +25,7 @@ body { margin:0; background:var(--bg); font-family:-apple-system,BlinkMacSystemF
 .badge { padding:2px 8px; border-radius:999px; font-size:12px; }
 .badge.ok { background:#dcfce7; color:var(--ok); }
 .badge.bad { background:#fee2e2; color:var(--bad); }
+.badge.warn { background:#fef3c7; color:var(--warn); }
 .badge.off { background:#f3f4f6; color:var(--muted); }
 .muted { color:var(--muted); }
 .hint { font-size:12px; color:var(--muted); }

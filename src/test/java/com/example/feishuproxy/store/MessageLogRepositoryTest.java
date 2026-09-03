@@ -1,9 +1,11 @@
 package com.example.feishuproxy.store;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.model.FeishuResponse;
 import com.example.feishuproxy.model.GameStats;
 import com.example.feishuproxy.model.MessageLog;
 import com.example.feishuproxy.model.SendResult;
+import com.example.feishuproxy.store.entity.MessageLogEntity;
 import com.example.feishuproxy.store.mapper.MessageLogMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -196,6 +198,26 @@ class MessageLogRepositoryTest {
         assertEquals(20480, record.getBody().length(),
                 "the table is never pruned, so cap what lands in it");
         assertEquals(30000, record.getBodyBytes(), "the original size is still worth knowing");
+    }
+
+    @Test
+    void repairRewritesStaleCreateDatetime() {
+        repository.record(Arrays.asList("dev-group"), POST, parsed(POST), "ip",
+                0, "success", Collections.singletonList(ok("dev-group")));
+
+        // 抓出唯一一行，拿到权威的 created_at，再把 create_datetime 故意改坏，模拟旧代码烧错的 UTC 值。
+        MessageLogEntity entity = mapper.selectList(null).get(0);
+        Long id = entity.getId();
+        String correct = MessageLog.formatDateTime(entity.getCreatedAt());
+        mapper.update(null, new LambdaUpdateWrapper<MessageLogEntity>()
+                .eq(MessageLogEntity::getId, id)
+                .set(MessageLogEntity::getCreateDatetime, "1970-01-01 00:00:00.000"));
+
+        assertEquals(1, repository.repairCreateDatetime(200), "应修复被改坏的那一行");
+        assertEquals(correct, mapper.selectById(id).getCreateDatetime(),
+                "修复后与权威 created_at 重算出的北京时间一致");
+
+        assertEquals(0, repository.repairCreateDatetime(200), "第二次跑应是 no-op");
     }
 
     /** 一条战报，数值可控。参数各不相同，字段读串了才看得出来。 */

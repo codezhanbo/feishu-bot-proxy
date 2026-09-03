@@ -359,8 +359,8 @@ public class FeishuProperties {
     /** 存活告警的全局设置。告警规则本身存在数据库里，由后台页面配置。 */
     public static class Alert {
 
-        /** 告警调度器两轮检查之间的间隔（毫秒）。阈值以分钟计，默认一分钟查一次足够。 */
-        private long checkIntervalMs = 60000;
+        /** 告警调度器两轮检查之间的间隔（毫秒）。默认十分钟查一次。 */
+        private long checkIntervalMs = 600000;
 
         public long getCheckIntervalMs() {
             return checkIntervalMs;

@@ -1,6 +1,7 @@
 package com.example.feishuproxy.store;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.model.BanCheckLog;
 import com.example.feishuproxy.model.BanCheckResult;
 import com.example.feishuproxy.store.mapper.BanCheckLogMapper;
@@ -108,6 +109,50 @@ public class BanCheckLogRepository {
             log.warn("failed to count ban check log", e);
             return 0L;
         }
+    }
+
+    /**
+     * 修复老数据：早期版本把 {@code queried_datetime} 烧成了慢 8 小时的 UTC 值，这里按权威的
+     * {@code queried_at}（epoch 毫秒）重算，只改不一致的行。幂等、可反复跑。库不可用或中途
+     * 出错返回 0（只记日志，绝不抛异常）。
+     *
+     * @return 本轮实际修复的行数
+     */
+    public int repairQueriedDatetime(int batchSize) {
+        int fixed = 0;
+        int limit = Math.max(1, Math.min(batchSize, MAX_PAGE));
+        Long afterId = null;
+        try {
+            while (true) {
+                LambdaQueryWrapper<BanCheckLog> wrapper = new LambdaQueryWrapper<BanCheckLog>()
+                        .select(BanCheckLog::getId, BanCheckLog::getQueriedAt, BanCheckLog::getQueriedDatetime)
+                        .orderByAsc(BanCheckLog::getId)
+                        .last("LIMIT " + limit);
+                if (afterId != null) {
+                    wrapper.gt(BanCheckLog::getId, afterId);
+                }
+                List<BanCheckLog> batch = mapper.selectList(wrapper);
+                if (batch == null || batch.isEmpty()) {
+                    break;
+                }
+                for (BanCheckLog e : batch) {
+                    String correct = BanCheckLog.format(e.getQueriedAt());
+                    if (!correct.equals(e.getQueriedDatetime())) {
+                        mapper.update(null, new LambdaUpdateWrapper<BanCheckLog>()
+                                .eq(BanCheckLog::getId, e.getId())
+                                .set(BanCheckLog::getQueriedDatetime, correct));
+                        fixed++;
+                    }
+                }
+                if (batch.size() < limit) {
+                    break; // 已到最后一页
+                }
+                afterId = batch.get(batch.size() - 1).getId();
+            }
+        } catch (Exception e) {
+            log.warn("failed to repair ban_check_log queried_datetime", e);
+        }
+        return fixed;
     }
 
     /** 组装玩家 ID / 查询时间区间的过滤条件，供查询与计数共用。 */

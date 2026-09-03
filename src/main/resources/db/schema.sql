@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS ban_check_log (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS account (
     account_id TEXT PRIMARY KEY,
-    ban_status TEXT NOT NULL DEFAULT '正常',
+    ban_status TEXT NOT NULL DEFAULT '正常',  -- 正常 / 临时封禁 / 永久封禁
     level TEXT,
     platform TEXT,                      -- 平台：steam / kakao / console / xbox / psn；旧行 NULL 按 steam 处理
     last_checked_at TEXT,

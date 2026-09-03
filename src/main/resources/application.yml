@@ -52,6 +52,11 @@ feishu:
 
   # 存活告警的全局设置；告警规则本身在后台「告警配置」页增删改
   alert:
-    check-interval-ms: 60000               # 告警调度器两轮检查之间的间隔（毫秒）
+    check-interval-ms: 600000              # 告警调度器两轮检查之间的间隔（毫秒），10 分钟一次
+
+  # 老数据修复调度：按固定周期把旧行烧错的可读时间列（create_datetime / queried_datetime）
+  # 按权威 epoch 列重算回填。幂等，改完后的轮次不再动任何行。
+  repair:
+    interval-ms: 3600000                   # 两轮修复之间的间隔（毫秒）
 
 # 日志级别统一在 src/main/resources/logback-spring.xml 里管理（控制台 + logs/app.log）。
