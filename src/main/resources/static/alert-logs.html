@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>告警日志 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+<style>
+  .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; background:var(--card);
+             border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .filters input, .filters select { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
+  .filters input:focus, .filters select:focus { outline:none; border-color:var(--accent); }
+  .filters button { padding:8px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .filters button.ghost { background:var(--card); color:var(--text); border:1px solid var(--line); }
+  .meta { margin:16px 2px; color:var(--muted); font-size:13px; }
+  .table-wrap { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:auto; }
+  thead th { position:sticky; top:0; }
+  tbody tr { cursor:pointer; }
+  .pager { display:flex; align-items:center; gap:12px; margin:16px 2px; }
+  .pager button { padding:7px 16px; border:1px solid var(--line); background:var(--card); border-radius:8px; cursor:pointer; }
+  .pager button:disabled { opacity:.4; cursor:default; }
+  .pager span { font-size:13px; color:var(--muted); }
+  .detail { margin-top:20px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .detail h2 { margin:0 0 12px; font-size:15px; }
+  .detail pre { background:#0f172a; color:#e2e8f0; padding:16px; border-radius:8px; overflow:auto; font-size:12px; line-height:1.5; white-space:pre-wrap; }
+</style>
+</head>
+<body data-page="alert-logs">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="filters">
+        <label>触发时间<input type="date" id="date"></label>
+        <label>被监控 bot<input type="text" id="botKey" placeholder="模糊匹配"></label>
+        <label>每页条数
+          <select id="limit">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <button id="query">查询</button>
+        <button id="reset" class="ghost">重置</button>
+      </section>
+
+      <div class="meta" id="meta"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>id</th><th>触发时间</th><th>监控 bot</th><th>告警 bot</th><th>阈值(分)</th><th>空闲(分)</th><th>发送结果</th></tr>
+          </thead>
+          <tbody id="tbody"><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button id="prev">上一页</button>
+        <span id="page"></span>
+        <button id="next">下一页</button>
+      </div>
+
+      <section class="detail" id="detail" hidden>
+        <h2>告警文案</h2>
+        <pre id="detail-body"></pre>
+      </section>
+    </main>
+  </div>
+<script>
+  let offset = 0;
+  let lastCount = 0;
+  const tbody = document.getElementById('tbody');
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function fmt(ms) {
+    return ms ? new Date(ms).toLocaleString() : '—';
+  }
+
+  function sendBadge(r) {
+    if (r.sendCode === 0) return '<span class="badge ok">成功</span>';
+    return '<span class="badge bad">失败</span> <span class="muted">' + esc(r.sendMsg || '') + '</span>';
+  }
+
+  function todayStr() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  // 一个自然日对应的 [from, to) 半开区间（epoch 毫秒，本地时区）。空日期 => 不限时间。
+  function dayRange(dateStr) {
+    if (!dateStr) return { from: null, to: null };
+    const start = new Date(dateStr + 'T00:00:00');
+    return { from: start.getTime(), to: start.getTime() + 86400000 };
+  }
+
+  function buildParams() {
+    const p = new URLSearchParams();
+    const botKey = document.getElementById('botKey').value.trim();
+    const range = dayRange(document.getElementById('date').value);
+    if (botKey) p.set('botKey', botKey);
+    if (range.from !== null) p.set('from', range.from);
+    if (range.to !== null) p.set('to', range.to);
+    p.set('limit', document.getElementById('limit').value || '20');
+    p.set('offset', offset);
+    return p;
+  }
+
+  async function load() {
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">加载中…</td></tr>';
+    try {
+      const res = await fetch('/console/alert-logs?' + buildParams());
+      if (res.status === 401) { location.replace('/login.html'); return; }
+      const j = await res.json();
+      render(j);
+    } catch (ex) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">加载失败：' + esc(ex.message) + '</td></tr>';
+    }
+  }
+
+  function render(j) {
+    lastCount = j.count || 0;
+    const limit = parseInt(document.getElementById('limit').value || '20', 10);
+    const total = j.total ?? 0;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    document.getElementById('meta').textContent =
+      '总记录数 ' + total + ' · 总页数 ' + pages + ' · 本页 ' + lastCount + ' 条';
+
+    if (!j.records || j.records.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">暂无告警记录</td></tr>';
+    } else {
+      tbody.innerHTML = j.records.map(r => rowHtml(r)).join('');
+    }
+
+    document.getElementById('prev').disabled = offset <= 0;
+    document.getElementById('next').disabled = lastCount < limit;
+    document.getElementById('page').textContent =
+      '第 ' + (offset / Math.max(1, limit) + 1) + ' / ' + pages + ' 页';
+  }
+
+  function rowHtml(r) {
+    return '<tr data-id="' + esc(r.id) + '">' +
+      '<td>' + esc(r.id) + '</td>' +
+      '<td>' + esc(fmt(r.triggeredAt)) + '</td>' +
+      '<td>' + esc(r.botKey) + '</td>' +
+      '<td>' + esc(r.alertBotKey) + '</td>' +
+      '<td>' + esc(r.thresholdMinutes) + '</td>' +
+      '<td>' + esc(r.idleMinutes) + '</td>' +
+      '<td>' + sendBadge(r) + '</td>' +
+      '</tr>';
+  }
+
+  function showDetail(r) {
+    document.getElementById('detail-body').textContent = r.message || '（无文案）';
+    document.getElementById('detail').hidden = false;
+    document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  tbody.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    const id = tr.getAttribute('data-id');
+    fetch('/console/alert-logs?' + buildParams()).then(r => r.json()).then(j => {
+      const rec = (j.records || []).find(x => String(x.id) === id);
+      if (rec) showDetail(rec);
+    });
+  });
+
+  document.getElementById('query').addEventListener('click', () => { offset = 0; load(); });
+  document.getElementById('reset').addEventListener('click', () => {
+    document.getElementById('date').value = todayStr();
+    document.getElementById('botKey').value = '';
+    document.getElementById('limit').value = '20';
+    offset = 0;
+    load();
+  });
+  document.getElementById('prev').addEventListener('click', () => {
+    offset = Math.max(0, offset - parseInt(document.getElementById('limit').value || '20', 10));
+    load();
+  });
+  document.getElementById('next').addEventListener('click', () => {
+    offset += parseInt(document.getElementById('limit').value || '20', 10);
+    load();
+  });
+
+  document.getElementById('date').value = todayStr();
+  load();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>
