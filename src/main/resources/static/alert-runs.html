@@ -2,29 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>调度日志 · feishu-bot-proxy</title>
 <link rel="stylesheet" href="/layout.css">
-<style>
-  .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; background:var(--card);
-             border:1px solid var(--line); border-radius:12px; padding:16px; }
-  .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
-  .filters input, .filters select { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
-  .filters input:focus, .filters select:focus { outline:none; border-color:var(--accent); }
-  .filters button { padding:8px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
-  .filters button.ghost { background:var(--card); color:var(--text); border:1px solid var(--line); }
-  .meta { margin:16px 2px; color:var(--muted); font-size:13px; }
-  .table-wrap { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:auto; }
-  thead th { position:sticky; top:0; }
-  tbody tr { cursor:pointer; }
-  .pager { display:flex; align-items:center; gap:12px; margin:16px 2px; }
-  .pager button { padding:7px 16px; border:1px solid var(--line); background:var(--card); border-radius:8px; cursor:pointer; }
-  .pager button:disabled { opacity:.4; cursor:default; }
-  .pager span { font-size:13px; color:var(--muted); }
-  .detail { margin-top:20px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
-  .detail h2 { margin:0 0 12px; font-size:15px; }
-  .detail pre { background:#0f172a; color:#e2e8f0; padding:16px; border-radius:8px; overflow:auto; font-size:12px; line-height:1.5; }
-</style>
 </head>
 <body data-page="alert-runs">
   <div class="layout">

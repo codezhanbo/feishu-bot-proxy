@@ -2,20 +2,25 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>首页 · feishu-bot-proxy</title>
 <link rel="stylesheet" href="/layout.css">
 <style>
-  .welcome { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px; }
+  .welcome { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:28px; box-shadow:var(--shadow-sm); }
   .welcome h1 { margin:0 0 8px; font-size:22px; }
-  .welcome p { margin:0 0 20px; color:var(--muted); font-size:14px; }
-  .shortcuts { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; }
-  .shortcut { display:block; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px;
-              text-decoration:none; color:var(--text); }
-  .shortcut:hover { border-color:var(--accent); box-shadow:0 4px 14px rgba(37,99,235,.10); }
-  .shortcut .icon { font-size:24px; }
-  .shortcut .title { font-size:15px; font-weight:600; margin:10px 0 4px; }
+  .welcome p { margin:0 0 22px; color:var(--muted); font-size:14px; }
+  .shortcuts { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:16px; }
+  .shortcut { display:block; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px;
+              text-decoration:none; color:var(--text); box-shadow:var(--shadow-sm);
+              transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+  .shortcut:hover { border-color:var(--accent); box-shadow:var(--shadow-md); transform:translateY(-2px); }
+  .shortcut .icon { font-size:26px; }
+  .shortcut .title { font-size:15px; font-weight:600; margin:12px 0 4px; }
   .shortcut .desc { font-size:13px; color:var(--muted); line-height:1.5; }
+  @media (max-width:768px) {
+    .welcome { padding:18px 16px; }
+    .shortcuts { grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body data-page="home">
