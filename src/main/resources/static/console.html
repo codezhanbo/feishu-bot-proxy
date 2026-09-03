@@ -11,7 +11,7 @@
     <aside id="sidebar" class="sidebar"></aside>
     <main class="content">
       <section class="filters">
-        <label>botKey<input id="botKey" placeholder="如 dev-group"></label>
+        <label>botKey<select id="botKey"><option value="">全部</option></select></label>
         <label>结果
           <select id="success">
             <option value="">全部</option>
@@ -71,6 +71,23 @@
   function esc(s) {
     if (s === null || s === undefined) return '<span class="muted">—</span>';
     return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  // 从机器人配置拉取 botKey 填入下拉框，供按 bot 过滤。
+  async function loadBots() {
+    const sel = document.getElementById('botKey');
+    try {
+      const res = await fetch('/console/bots');
+      if (res.status === 401) { location.replace('/login.html'); return; }
+      const j = await res.json();
+      const bots = (j && j.bots) || [];
+      const current = sel.value;
+      sel.innerHTML = '<option value="">全部</option>' + bots.map(b =>
+        '<option value="' + esc(b.botKey) + '">' + esc(b.botKey) + '</option>').join('');
+      sel.value = current;
+    } catch (e) {
+      // 拉不到列表就保留「全部」，不影响按其它条件查询。
+    }
   }
 
   function buildParams() {
@@ -196,6 +213,7 @@
     load();
   });
 
+  loadBots();
   load();
 </script>
 <script src="/layout.js"></script>

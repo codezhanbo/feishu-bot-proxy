@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.core.GameStatsParser;
 import com.example.feishuproxy.core.MessagePreview;
+import com.example.feishuproxy.model.DailyStats;
 import com.example.feishuproxy.model.GameStats;
 import com.example.feishuproxy.model.MessageLog;
 import com.example.feishuproxy.model.SendResult;
@@ -21,7 +22,9 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -305,6 +308,55 @@ public class MessageLogRepository {
             log.warn("failed to query message log", e);
         }
         return out;
+    }
+
+    /**
+     * 数据统计：把时间范围内的战报按「落库日期（yyyy-MM-dd）× 目标 bot」分组，
+     * 汇总当日新增经验、新增 BP 与累计运行时长。只扫统计相关的轻量列，不拖 body。
+     * <p>
+     * 不是战报的行（exp/bp/duration 三列全空）直接跳过；单行内某列为 null（缺上一条可比对）
+     * 只在累加时跳过该列，不影响其余。日期键优先取 {@code create_datetime} 前 10 位，
+     * 旧行该列为 null 时退回按权威的 {@code created_at}（北京时间）重算。
+     *
+     * @param fromEpochMs 落库时间下限（含，epoch 毫秒），null 表示不限
+     * @param toEpochMs   落库时间上限（含，epoch 毫秒），null 表示不限
+     */
+    public List<DailyStats> dailyStats(Long fromEpochMs, Long toEpochMs) {
+        List<DailyStats> out = new ArrayList<>();
+        try {
+            List<MessageLogEntity> rows = mapper.selectStatsRange(fromEpochMs, toEpochMs);
+            // LinkedHashMap 保证输出顺序稳定：日期升序、同日期内按 bot 首现顺序。
+            Map<String, DailyStats> grouped = new LinkedHashMap<>();
+            for (MessageLogEntity row : rows) {
+                if (row.getExpGained() == null && row.getBpGained() == null && row.getDuration() == null) {
+                    continue; // 不是战报（text / 测试消息等），不参与统计
+                }
+                String date = dateOf(row);
+                String bot = row.getBotKeys() == null ? "" : row.getBotKeys().trim();
+                String key = date + '|' + bot;
+                DailyStats acc = grouped.get(key);
+                if (acc == null) {
+                    acc = new DailyStats(date, bot);
+                    grouped.put(key, acc);
+                }
+                acc.add(row.getExpGained(), row.getBpGained(), row.getDuration());
+            }
+            out.addAll(grouped.values());
+            enabled = true;
+        } catch (Exception e) {
+            enabled = false;
+            log.warn("failed to aggregate daily stats", e);
+        }
+        return out;
+    }
+
+    /** 分组的日期键：优先 create_datetime 前 10 位，旧行缺失时按 created_at 重算（北京时间）。 */
+    private static String dateOf(MessageLogEntity row) {
+        String dt = row.getCreateDatetime();
+        if (dt != null && dt.length() >= 10) {
+            return dt.substring(0, 10);
+        }
+        return MessageLog.formatDateTime(row.getCreatedAt()).substring(0, 10);
     }
 
     /**

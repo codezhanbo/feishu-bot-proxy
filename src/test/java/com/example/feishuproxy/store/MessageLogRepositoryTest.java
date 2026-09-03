@@ -1,6 +1,7 @@
 package com.example.feishuproxy.store;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.example.feishuproxy.model.DailyStats;
 import com.example.feishuproxy.model.FeishuResponse;
 import com.example.feishuproxy.model.GameStats;
 import com.example.feishuproxy.model.MessageLog;
@@ -281,5 +282,46 @@ class MessageLogRepositoryTest {
 
         GameStats stats = repository.query(null, null, 10, 0).get(0).getStats();
         assertEquals(Long.valueOf(250), stats.getBpGained(), "中间那两条不是战报，不该打断增量链");
+    }
+
+    @Test
+    void dailyStatsAggregatesByDateAndBot() {
+        // 两个 bot 各先打一条基准（无上一条可比对，增量全空，不参与统计），再打带增量的战报。
+        send(repository, "dev", report("2026-09-01", 1000, 400, 5, "01:00:00"));
+        send(repository, "ops", report("2026-09-01", 500, 100, 3, "00:30:00"));
+        send(repository, "dev", report("2026-09-02", 1200, 450, 6, "01:20:00")); // +200bp +50exp +00:20:00
+        send(repository, "dev", report("2026-09-02", 1350, 480, 6, "01:35:00")); // +150bp +30exp +00:15:00
+        send(repository, "ops", report("2026-09-02", 700, 160, 4, "00:45:00"));  // +200bp +60exp +00:15:00
+
+        List<DailyStats> rows = repository.dailyStats(null, null);
+        assertEquals(2, rows.size(), "两条基准（增量全空）应被跳过，只剩 dev 与 ops 两个有增量的分组");
+
+        DailyStats dev = findByBot(rows, "dev");
+        DailyStats ops = findByBot(rows, "ops");
+        assertNotNull(dev);
+        assertNotNull(ops);
+
+        assertEquals(Long.valueOf(80), dev.getExp());
+        assertEquals(Long.valueOf(350), dev.getBp());
+        assertEquals("00:35:00", dev.getDuration());
+        assertEquals(2, dev.getReports());
+
+        assertEquals(Long.valueOf(60), ops.getExp());
+        assertEquals(Long.valueOf(200), ops.getBp());
+        assertEquals("00:15:00", ops.getDuration());
+        assertEquals(1, ops.getReports());
+
+        // 分组日期取 create_datetime 的日期（即今天），不是战报自称的 stat_date。
+        String today = MessageLog.formatDateTime(System.currentTimeMillis()).substring(0, 10);
+        assertEquals(today, dev.getDate());
+    }
+
+    private static DailyStats findByBot(List<DailyStats> rows, String botKey) {
+        for (DailyStats r : rows) {
+            if (botKey.equals(r.getBotKey())) {
+                return r;
+            }
+        }
+        return null;
     }
 }

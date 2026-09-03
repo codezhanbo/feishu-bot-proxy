@@ -53,4 +53,20 @@ public interface MessageLogMapper extends BaseMapper<MessageLogEntity> {
                                       @Param("toEpochMs") Long toEpochMs,
                                       @Param("limit") int limit,
                                       @Param("offset") int offset);
+
+    /**
+     * 数据统计：只取聚合所需的轻量列（不拖 body / results 等大列进内存），按落库时间升序。
+     * 分组的日期键与 bot 维度在仓储层用 Java 计算，这里只做时间范围过滤与列裁剪。
+     */
+    @Select("<script>"
+            + "SELECT created_at, create_datetime, bot_keys, exp_gained, bp_gained, duration"
+            + " FROM message_log"
+            + "<where>"
+            + "  <if test='fromEpochMs != null'> AND created_at &gt;= #{fromEpochMs}</if>"
+            + "  <if test='toEpochMs != null'> AND created_at &lt;= #{toEpochMs}</if>"
+            + "</where>"
+            + " ORDER BY created_at ASC"
+            + "</script>")
+    List<MessageLogEntity> selectStatsRange(@Param("fromEpochMs") Long fromEpochMs,
+                                            @Param("toEpochMs") Long toEpochMs);
 }

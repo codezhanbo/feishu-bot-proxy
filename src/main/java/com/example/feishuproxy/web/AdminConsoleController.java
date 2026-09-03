@@ -4,6 +4,7 @@ import com.example.feishuproxy.config.AdminSessionInterceptor;
 import com.example.feishuproxy.config.FeishuProperties;
 import com.example.feishuproxy.core.BotRegistry;
 import com.example.feishuproxy.core.FeishuSender;
+import com.example.feishuproxy.model.DailyStats;
 import com.example.feishuproxy.model.MessageLog;
 import com.example.feishuproxy.model.SendResult;
 import com.example.feishuproxy.store.BotRepository;
@@ -47,6 +48,9 @@ public class AdminConsoleController {
     private final BotRegistry registry;
     private final FeishuSender sender;
     private final ObjectMapper objectMapper;
+
+    /** 数据统计默认统计窗口：未指定时间范围时往回看 30 天。 */
+    private static final long DEFAULT_STATS_WINDOW_MS = 30L * 24 * 60 * 60 * 1000L;
 
     public AdminConsoleController(FeishuProperties properties, MessageLogRepository messageLog,
                                   BotRepository bots, BotRegistry registry, FeishuSender sender,
@@ -127,6 +131,25 @@ public class AdminConsoleController {
         out.put("maxLimit", MessageLogRepository.MAX_PAGE);
         out.put("note", "persisted to postgres, one row per request, never pruned");
         out.put("records", records);
+        return JsonResponses.ok(objectMapper, out);
+    }
+
+    /** 数据统计：message_log 按「落库日期 × bot」聚合每日新增经验 / BP / 累计运行时长。 */
+    @GetMapping("/console/stats")
+    public ResponseEntity<String> stats(@RequestParam(required = false) Long from,
+                                        @RequestParam(required = false) Long to) {
+        if (!messageLog.isEnabled()) {
+            return JsonResponses.error(objectMapper, 503, 50301, "message store unavailable");
+        }
+        long now = System.currentTimeMillis();
+        long toMs = to == null ? now : to;
+        long fromMs = from == null ? now - DEFAULT_STATS_WINDOW_MS : from;
+        List<DailyStats> rows = messageLog.dailyStats(fromMs, toMs);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("from", fromMs);
+        out.put("to", toMs);
+        out.put("count", rows.size());
+        out.put("rows", rows);
         return JsonResponses.ok(objectMapper, out);
     }
 

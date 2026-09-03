@@ -54,6 +54,10 @@ feishu:
   alert:
     check-interval-ms: 600000              # 告警调度器两轮检查之间的间隔（毫秒），10 分钟一次
 
+  # 账号封禁状态批量巡检：按固定周期把账号表所有账号查一遍封禁状态与等级并回填、写 ban_check_log。
+  ban-check:
+    interval-ms: 1800000                   # 两轮巡检之间的间隔（毫秒），30 分钟一次
+
   # 老数据修复调度：按固定周期把旧行烧错的可读时间列（create_datetime / queried_datetime）
   # 按权威 epoch 列重算回填。幂等，改完后的轮次不再动任何行。
   repair:

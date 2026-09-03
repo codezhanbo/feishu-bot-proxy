@@ -13,7 +13,10 @@
       <section class="panel">
         <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
           <h2 style="margin:0;">我的账号</h2>
-          <button class="primary" id="new">添加账号</button>
+          <div style="display:flex; gap:10px;">
+            <button class="ghost" id="batch-check">批量查询</button>
+            <button class="primary" id="new">添加账号</button>
+          </div>
         </div>
         <p class="hint" style="margin:8px 0 12px;">
           手动维护我的账号（账号ID 与等级）。封禁状态 / 最后查询时间 / 总场次会在对该账号执行
@@ -280,6 +283,29 @@
     }
   }
 
+  // 批量查询所有账号的封禁状态与等级并回填，完成后刷新列表。
+  async function batchCheck() {
+    const btn = $('batch-check');
+    if (!accounts.length) { alert('还没有账号，先添加账号'); return; }
+    if (!confirm('将逐个查询全部 ' + accounts.length + ' 个账号的封禁状态与等级，耗时可能较长，确认继续？')) return;
+    btn.disabled = true;
+    btn.textContent = '查询中…';
+    try {
+      const j = await api('/console/accounts/batch-check', { method: 'POST' });
+      await loadAccounts();
+      const lines = (j.results || []).map(r =>
+        r.success
+          ? r.accountId + '：' + (r.banStatus || '未知') + (r.level ? ' · ' + r.level : '')
+          : r.accountId + '：查询失败（' + (r.error || '未知') + '）');
+      alert('批量查询完成：成功 ' + j.success + ' / 失败 ' + j.failed + ' / 共 ' + j.total + '\n\n' + lines.join('\n'));
+    } catch (e) {
+      alert('批量查询失败：' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '批量查询';
+    }
+  }
+
   $('tbody').addEventListener('click', e => {
     const checkBtn = e.target.closest('[data-check]');
     const editBtn = e.target.closest('[data-edit]');
@@ -295,6 +321,7 @@
     }
   });
   $('new').addEventListener('click', () => openForm(null));
+  $('batch-check').addEventListener('click', batchCheck);
   $('cancel').addEventListener('click', closeForm);
   $('save').addEventListener('click', save);
   $('log-query').addEventListener('click', () => { logOffset = 0; loadLogs(); });

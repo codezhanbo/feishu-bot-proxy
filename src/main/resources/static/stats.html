@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>数据统计 · feishu-bot-proxy</title>
+<link rel="stylesheet" href="/layout.css">
+</head>
+<body data-page="stats">
+  <div class="layout">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="content">
+      <section class="panel">
+        <h2>数据统计</h2>
+        <p class="hint">
+          按「落库日期 × 目标 bot」聚合 message_log 战报：当日新增生存经验 / 新增 BP / 累计运行时长。
+        </p>
+        <div class="filters" style="margin-bottom:12px;">
+          <label>起始日期<input type="date" id="from"></label>
+          <label>结束日期<input type="date" id="to"></label>
+          <button id="query" class="primary">查询</button>
+          <button id="reset" class="ghost">重置</button>
+        </div>
+        <div class="meta" id="meta"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>日期</th><th>botKey</th><th>总经验</th><th>总BP</th><th>运行时长</th><th>战报数</th></tr>
+            </thead>
+            <tbody id="tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+<script>
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    if (s === null || s === undefined) return '<span class="muted">—</span>';
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  // 本地时区 yyyy-MM-dd
+  function dateStr(d) {
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  // 默认统计窗口：往回 30 天。
+  function defaultRange() {
+    const to = new Date();
+    const from = new Date(to.getTime() - 29 * 86400000);
+    return { from: dateStr(from), to: dateStr(to) };
+  }
+
+  function buildParams() {
+    const p = new URLSearchParams();
+    const from = $('from').value, to = $('to').value;
+    if (from) p.set('from', new Date(from + 'T00:00:00').getTime());
+    // 结束日期含当天：取次日 0 点再减 1ms，配合后端 <= 比较。
+    if (to) p.set('to', new Date(to + 'T00:00:00').getTime() + 86400000 - 1);
+    return p;
+  }
+
+  async function load() {
+    $('tbody').innerHTML = '<tr><td colspan="6" class="muted">加载中…</td></tr>';
+    try {
+      const res = await fetch('/console/stats?' + buildParams());
+      if (res.status === 401) { location.replace('/login.html'); return; }
+      const j = await res.json();
+      render(j);
+    } catch (ex) {
+      $('tbody').innerHTML = '<tr><td colspan="6" class="muted">加载失败：' + esc(ex.message) + '</td></tr>';
+    }
+  }
+
+  function render(j) {
+    const rows = j.rows || [];
+    $('meta').textContent = '共 ' + (j.count || 0) + ' 个分组';
+    if (!rows.length) {
+      $('tbody').innerHTML = '<tr><td colspan="6" class="muted">该时间范围内没有战报数据</td></tr>';
+      return;
+    }
+    $('tbody').innerHTML = rows.map(r =>
+      '<tr>' +
+      '<td>' + esc(r.date) + '</td>' +
+      '<td>' + esc(r.botKey) + '</td>' +
+      '<td>' + esc(r.exp) + '</td>' +
+      '<td>' + esc(r.bp) + '</td>' +
+      '<td>' + esc(r.duration) + '</td>' +
+      '<td>' + esc(r.reports) + '</td>' +
+      '</tr>').join('');
+  }
+
+  function reset() {
+    const r = defaultRange();
+    $('from').value = r.from;
+    $('to').value = r.to;
+    load();
+  }
+
+  $('query').addEventListener('click', load);
+  $('reset').addEventListener('click', reset);
+
+  reset();
+</script>
+<script src="/layout.js"></script>
+</body>
+</html>

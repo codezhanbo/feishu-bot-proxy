@@ -3,6 +3,7 @@ package com.example.feishuproxy.store;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.feishuproxy.model.Account;
+import com.example.feishuproxy.model.BanCheckResult;
 import com.example.feishuproxy.store.mapper.AccountMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,30 @@ public class AccountRepository {
     public static final String PERM_BANNED = "永久封禁";
     /** 兜底值：上游只给了 banType（非 innocent）而没有中文 banStatus 时用。 */
     public static final String BANNED = "封禁";
+
+    /**
+     * 把上游封禁查询结果归一成账号表的状态（正常 / 临时封禁 / 永久封禁 / 封禁兜底）。
+     * 优先看中文 {@code banStatus}——含「永久」→永久封禁、含「临时」→临时封禁、含「正常/未封禁」→正常；
+     * 上游没给中文值时退回 {@code banType}（innocent → 正常，其余 → 封禁兜底）。
+     * 与后台各页面判定一致，供单查（PubgBanController）与批量巡检（BanCheckScheduler）共用。
+     */
+    public static String toBanStatus(BanCheckResult result) {
+        String status = result.getBanStatus();
+        if (status != null) {
+            String s = status.trim();
+            if (s.contains("永久")) {
+                return PERM_BANNED;
+            }
+            if (s.contains("临时")) {
+                return TEMP_BANNED;
+            }
+            if (s.contains("正常") || s.contains("未封禁")) {
+                return NORMAL;
+            }
+        }
+        String type = result.getBanType();
+        return type != null && !"innocent".equalsIgnoreCase(type) ? BANNED : NORMAL;
+    }
 
     private final AccountMapper mapper;
 

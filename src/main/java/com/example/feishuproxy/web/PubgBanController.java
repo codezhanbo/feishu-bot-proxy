@@ -1,17 +1,22 @@
 package com.example.feishuproxy.web;
 
 import com.example.feishuproxy.core.PubgBanClient;
+import com.example.feishuproxy.model.Account;
 import com.example.feishuproxy.model.BanCheckLog;
 import com.example.feishuproxy.model.BanCheckResult;
 import com.example.feishuproxy.store.AccountRepository;
 import com.example.feishuproxy.store.BanCheckLogRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -74,26 +79,57 @@ public class PubgBanController {
     }
 
     /**
-     * 把上游结果归一成账号表的封禁状态（正常 / 临时封禁 / 永久封禁）。优先看中文 {@code banStatus}
-     * ——含「永久」→永久封禁、含「临时」→临时封禁、含「正常/未封禁」→正常；上游没给中文值时退回
-     * {@code banType}（innocent → 正常，其余 → 封禁兜底）。与各页面的判定一致。
+     * 批量查询所有账号的封禁状态与等级并回填。逐个串行调用上游，避免并发打爆 pubg.hk；
+     * 单个账号失败不影响其余账号。返回每个账号的结果汇总。
      */
-    static String toBanStatus(BanCheckResult result) {
-        String status = result.getBanStatus();
-        if (status != null) {
-            String s = status.trim();
-            if (s.contains("永久")) {
-                return AccountRepository.PERM_BANNED;
-            }
-            if (s.contains("临时")) {
-                return AccountRepository.TEMP_BANNED;
-            }
-            if (s.contains("正常") || s.contains("未封禁")) {
-                return AccountRepository.NORMAL;
+    @PostMapping("/console/accounts/batch-check")
+    public ResponseEntity<String> batchCheck() {
+        List<Account> all = accounts.findAll();
+        if (all == null) {
+            return JsonResponses.error(objectMapper, 503, 50301, "account store unavailable");
+        }
+        ArrayNode results = objectMapper.createArrayNode();
+        int success = 0;
+        int failed = 0;
+        for (Account account : all) {
+            String name = account.getAccountId();
+            String platformKey = account.getPlatform() == null || account.getPlatform().trim().isEmpty()
+                    ? "steam" : account.getPlatform().trim();
+            BanCheckResult result = client.check(name, platformKey);
+            banCheckLog.record(name, platformKey, result);
+
+            ObjectNode item = results.addObject();
+            item.put("accountId", name);
+            if (result.isSuccess()) {
+                accounts.updateFromCheck(name, toBanStatus(result), result.getLevelText(),
+                        result.getTotalMatches() == null ? null : result.getTotalMatches().longValue(),
+                        BanCheckLog.format(System.currentTimeMillis()));
+                item.put("success", true);
+                item.put("banStatus", result.getBanStatus());
+                item.put("level", result.getLevelText());
+                if (result.getTotalMatches() != null) {
+                    item.put("totalMatches", result.getTotalMatches().longValue());
+                }
+                success++;
+            } else {
+                item.put("success", false);
+                item.put("error", result.getError());
+                failed++;
             }
         }
-        String type = result.getBanType();
-        return type != null && !"innocent".equalsIgnoreCase(type)
-                ? AccountRepository.BANNED : AccountRepository.NORMAL;
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("total", all.size());
+        out.put("success", success);
+        out.put("failed", failed);
+        out.put("results", results);
+        return JsonResponses.ok(objectMapper, out);
+    }
+
+    /**
+     * 把上游结果归一成账号表的封禁状态。逻辑收敛在 {@link AccountRepository#toBanStatus(BanCheckResult)}，
+     * 这里保留一个同名的包内入口，供本控制器与既有测试直接调用。
+     */
+    static String toBanStatus(BanCheckResult result) {
+        return AccountRepository.toBanStatus(result);
     }
 }

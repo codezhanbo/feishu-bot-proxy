@@ -27,6 +27,11 @@ feishu:
   alert:
     check-interval-ms: 3600000
 
+  # 账号批量巡检调度器。拉长到 1 小时，避免测试期间再跑第二轮；
+  # 首轮在上下文启动时 account 表为空，run() 直接 return，不会碰 pubg.hk。
+  ban-check:
+    interval-ms: 3600000
+
   # store.jdbc-url 由 @DynamicPropertySource 在运行时注入，指向 H2 内存库。
   # 建表交给上面的 spring.sql.init，启动不再自动建表。
   store:

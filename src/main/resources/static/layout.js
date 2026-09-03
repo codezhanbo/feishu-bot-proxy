@@ -5,6 +5,7 @@
   var nav = [
     { key: 'home',       href: '/home.html',       icon: '🏠', label: '首页' },
     { key: 'console',    href: '/console.html',    icon: '📋', label: '消息查询' },
+    { key: 'stats',      href: '/stats.html',      icon: '📊', label: '数据统计' },
     { key: 'bots',       href: '/bots.html',       icon: '🤖', label: 'Bot 配置' },
     { key: 'ban-check',  href: '/ban-check.html',  icon: '🎮', label: '封禁查询' },
     { key: 'accounts',   href: '/accounts.html',   icon: '👤', label: '账号管理' },
