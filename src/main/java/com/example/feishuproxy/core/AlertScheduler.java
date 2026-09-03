@@ -143,7 +143,12 @@ public class AlertScheduler {
         return idleMinutes;
     }
 
-    private void sendAlert(AlertRule rule, long idleMinutes) {
+    /**
+     * 发送一条告警：把文案发往规则指定的目标 bot，并写一条告警事件日志（成功或失败都写），
+     * 发送的告警同时按普通消息留档到 message_log。返回发送结果；
+     * 目标 bot 未知/停用、或组包失败时返回 null（此时已写一条 send_code=-1 的日志）。
+     */
+    private SendResult sendAlert(AlertRule rule, long idleMinutes) {
         String text = "[feishu-bot-proxy] 告警：机器人 " + rule.getBotKey()
                 + " 已 " + idleMinutes + " 分钟没有消息记录"
                 + "（阈值 " + rule.getThresholdMinutes() + " 分钟）";
@@ -152,12 +157,12 @@ public class AlertScheduler {
         if (alertBot == null) {
             log.warn("alert rule {} targets unknown bot {}", rule.getId(), rule.getAlertBotKey());
             recordAlert(rule, idleMinutes, text, -1, "unknown alert bot: " + rule.getAlertBotKey());
-            return;
+            return null;
         }
         if (!alertBot.isEnabled()) {
             log.warn("alert rule {} targets disabled bot {}", rule.getId(), rule.getAlertBotKey());
             recordAlert(rule, idleMinutes, text, -1, "disabled alert bot: " + rule.getAlertBotKey());
-            return;
+            return null;
         }
 
         // 若目标 bot 配置了关键词，带上第一个，好让飞书的关键词校验通过（与 /admin/test 一致）。
@@ -175,7 +180,7 @@ public class AlertScheduler {
         } catch (Exception e) {
             log.warn("alert rule {} failed to build payload", rule.getId(), e);
             recordAlert(rule, idleMinutes, message, -1, "payload build failed");
-            return;
+            return null;
         }
 
         SendResult result = sender.send(rule.getAlertBotKey(), alertBot, body, payload, "text", CLIENT_IP);
@@ -186,6 +191,18 @@ public class AlertScheduler {
 
         log.info("alert fired rule={} bot={} alertBot={} code={} idleMinutes={}",
                 rule.getId(), rule.getBotKey(), rule.getAlertBotKey(), result.getCode(), idleMinutes);
+        return result;
+    }
+
+    /**
+     * 测试用：模拟某条规则触发一次告警（发消息 + 写日志），但<strong>不</strong>改动该规则的
+     * 冷却状态（{@code last_alert_at}）。后台「告警配置」页的「测试」按钮走这里，用来验证告警链路，
+     * 无需真的让被监控 bot 超时。停用/未知目标等失败情形也会按 {@link #sendAlert} 的规则留档。
+     *
+     * @return 发送结果；目标 bot 未知/停用或组包失败时为 null
+     */
+    public SendResult fireForTest(AlertRule rule) {
+        return sendAlert(rule, rule.getThresholdMinutes());
     }
 
     /** 写一条告警事件日志。写失败绝不能反过来影响调度（与 recordRun 同语义）。 */

@@ -1,8 +1,10 @@
 package com.example.feishuproxy.web;
 
+import com.example.feishuproxy.core.AlertScheduler;
 import com.example.feishuproxy.model.AlertLog;
 import com.example.feishuproxy.model.AlertRule;
 import com.example.feishuproxy.model.AlertRunLog;
+import com.example.feishuproxy.model.SendResult;
 import com.example.feishuproxy.store.AlertLogRepository;
 import com.example.feishuproxy.store.AlertRuleRepository;
 import com.example.feishuproxy.store.AlertRunLogRepository;
@@ -33,13 +35,16 @@ public class AlertConsoleController {
     private final AlertRuleRepository repository;
     private final AlertRunLogRepository runLog;
     private final AlertLogRepository alertLog;
+    private final AlertScheduler scheduler;
     private final ObjectMapper objectMapper;
 
     public AlertConsoleController(AlertRuleRepository repository, AlertRunLogRepository runLog,
-                                  AlertLogRepository alertLog, ObjectMapper objectMapper) {
+                                  AlertLogRepository alertLog, AlertScheduler scheduler,
+                                  ObjectMapper objectMapper) {
         this.repository = repository;
         this.runLog = runLog;
         this.alertLog = alertLog;
+        this.scheduler = scheduler;
         this.objectMapper = objectMapper;
     }
 
@@ -159,6 +164,40 @@ public class AlertConsoleController {
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", id);
+        return JsonResponses.ok(objectMapper, out);
+    }
+
+    /**
+     * 测试触发：模拟某条规则告警出现——按该规则配置向目标 bot 实际发一条告警消息并写告警日志，
+     * 但不改动冷却状态。用于后台验证告警链路（发到哪个 bot、文案、日志），无需让被监控 bot 真超时。
+     */
+    @PostMapping("/console/alerts/{id}/test")
+    public ResponseEntity<String> testAlert(@PathVariable("id") long id) {
+        AlertRule rule;
+        try {
+            rule = repository.find(id);
+        } catch (IllegalStateException e) {
+            return JsonResponses.error(objectMapper, 503, 50301, "alert rule store unavailable");
+        }
+        if (rule == null) {
+            return JsonResponses.error(objectMapper, 404, 40401, "unknown alert rule: " + id);
+        }
+
+        SendResult result = scheduler.fireForTest(rule);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ruleId", rule.getId());
+        out.put("botKey", rule.getBotKey());
+        out.put("alertBotKey", rule.getAlertBotKey());
+        out.put("idleMinutes", rule.getThresholdMinutes());
+        if (result == null) {
+            out.put("success", false);
+            out.put("code", -1);
+            out.put("msg", "alert bot unavailable (unknown or disabled)");
+        } else {
+            out.put("success", result.isSuccess());
+            out.put("code", result.getCode());
+            out.put("msg", result.getMsg());
+        }
         return JsonResponses.ok(objectMapper, out);
     }
 

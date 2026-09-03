@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -202,5 +203,27 @@ class AlertSchedulerTest {
         assertEquals("skipped", entry.getStatus());
         assertEquals(0, entry.getRulesScanned());
         assertEquals(0, entry.getAlertsFired());
+    }
+
+    @Test
+    void fireForTestSendsAndLogsWithoutTouchingCooldown() {
+        AlertRule r = rule(1L, true, 30, 30, null);
+        when(registry.get("ops-group")).thenReturn(alertBot());
+        when(sender.send(eq("ops-group"), any(FeishuProperties.Bot.class), any(byte[].class),
+                any(JsonNode.class), eq("text"), eq("alert-scheduler")))
+                .thenReturn(SendResult.localError("ops-group", 200, 0, "ok"));
+
+        SendResult result = scheduler.fireForTest(r);
+
+        assertNotNull(result);
+        verify(sender).send(eq("ops-group"), any(FeishuProperties.Bot.class), any(byte[].class),
+                any(JsonNode.class), eq("text"), eq("alert-scheduler"));
+        // 测试触发不污染真实冷却状态。
+        verify(rules, never()).setLastAlertAt(anyLong(), any());
+
+        ArgumentCaptor<AlertLog> captor = ArgumentCaptor.forClass(AlertLog.class);
+        verify(alertLog).insert(captor.capture());
+        assertEquals(30, captor.getValue().getIdleMinutes(), "模拟的 idle 时长等于阈值");
+        assertEquals("ops-group", captor.getValue().getAlertBotKey());
     }
 }

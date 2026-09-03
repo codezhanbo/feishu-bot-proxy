@@ -111,7 +111,8 @@
         '<td>' + statusBadge + '</td>' +
         '<td>' + esc(r.alertBotKey) + '</td>' +
         '<td>' + fmt(r.lastAlertAt) + '</td>' +
-        '<td><button class="ghost" data-edit="' + esc(r.id) + '">编辑</button> ' +
+        '<td><button class="ghost" data-test="' + esc(r.id) + '">测试</button> ' +
+        '<button class="ghost" data-edit="' + esc(r.id) + '">编辑</button> ' +
         '<button class="danger" data-del="' + esc(r.id) + '">删除</button></td>' +
         '</tr>';
     }).join('');
@@ -172,11 +173,31 @@
     }
   }
 
+  // 模拟某条规则触发告警：实际向目标 bot 发一条告警消息并写日志，但不改动冷却状态。
+  async function testAlert(id) {
+    const rule = rules.find(r => r.id === id);
+    const label = rule ? '#' + id + '（' + rule.botKey + ' → ' + rule.alertBotKey + '）' : '#' + id;
+    if (!confirm('模拟规则 ' + label + ' 触发告警？将向目标 bot 实际发送一条告警消息并写日志。')) return;
+    try {
+      const j = await api('/console/alerts/' + id + '/test', { method: 'POST' });
+      if (j.success) {
+        alert('已触发告警：' + (j.msg || '发送成功') + '。可在「告警日志」页查看记录。');
+      } else {
+        alert('触发失败：' + (j.msg || '目标 bot 未知或停用'));
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   // 事件
   $('tbody').addEventListener('click', e => {
+    const testBtn = e.target.closest('[data-test]');
     const editBtn = e.target.closest('[data-edit]');
     const delBtn = e.target.closest('[data-del]');
-    if (editBtn) {
+    if (testBtn) {
+      testAlert(Number(testBtn.getAttribute('data-test')));
+    } else if (editBtn) {
       const id = Number(editBtn.getAttribute('data-edit'));
       const rule = rules.find(r => r.id === id);
       if (rule) openForm(rule);
