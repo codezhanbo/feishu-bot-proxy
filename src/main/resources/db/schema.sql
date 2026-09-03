@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS account (
     account_id TEXT PRIMARY KEY,
     ban_status TEXT NOT NULL DEFAULT '正常',
     level TEXT,
+    platform TEXT,                      -- 平台：steam / kakao / console / xbox / psn；旧行 NULL 按 steam 处理
     last_checked_at TEXT,
     total_matches BIGINT
 );
@@ -123,3 +124,4 @@ CREATE TABLE IF NOT EXISTS account (
 -- ALTER TABLE message_log ADD COLUMN bp_gained BIGINT;
 -- ALTER TABLE message_log ADD COLUMN duration TEXT;
 -- ALTER TABLE message_log ADD COLUMN create_datetime TEXT;
+-- ALTER TABLE account ADD COLUMN platform TEXT;   -- 已有 account 库补平台列（新库已含）

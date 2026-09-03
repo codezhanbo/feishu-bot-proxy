@@ -63,12 +63,13 @@ public class AccountRepository {
         }
     }
 
-    /** 更新账号的等级（唯一手工维护的字段）。主键 account_id 不可改。 */
-    public void updateLevel(String accountId, String level) {
+    /** 更新账号的平台与等级（两个手工维护字段）。主键 account_id 不可改。 */
+    public void updateProfile(String accountId, String level, String platform) {
         try {
             mapper.update(null, new LambdaUpdateWrapper<Account>()
                     .eq(Account::getAccountId, accountId)
-                    .set(Account::getLevel, level));
+                    .set(Account::getLevel, level)
+                    .set(Account::getPlatform, platform));
         } catch (Exception e) {
             throw new IllegalStateException("account store unavailable", e);
         }

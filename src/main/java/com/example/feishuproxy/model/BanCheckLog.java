@@ -19,8 +19,14 @@ import java.time.format.DateTimeFormatter;
 @TableName("ban_check_log")
 public class BanCheckLog {
 
+    /**
+     * 展示用固定时区：落库时间以 epoch 毫秒存储、本与时区无关，格式化必须用北京时间。
+     * 不能用 {@link ZoneId#systemDefault()}——容器基础镜像（eclipse-temurin）默认 UTC，会慢 8 小时。
+     */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+
     private static final DateTimeFormatter FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZONE);
 
     @TableId(type = IdType.AUTO)
     private Long id;

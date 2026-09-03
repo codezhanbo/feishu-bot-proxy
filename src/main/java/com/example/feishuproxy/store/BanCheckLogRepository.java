@@ -66,28 +66,62 @@ public class BanCheckLogRepository {
         mapper.insert(record);
     }
 
-    /** 最新在前。数据库不可用时返回 {@code null}。 */
+    /** 最新在前（无过滤条件的便捷重载）。数据库不可用时返回 {@code null}。 */
     public List<BanCheckLog> query(int limit, int offset) {
+        return query(null, null, null, limit, offset);
+    }
+
+    /**
+     * 最新在前，按 id 倒序。可选按玩家 ID 模糊 / 查询时间区间过滤：
+     * {@code player} 非空则对 {@code player} 列做模糊匹配，{@code from}/{@code to} 是 epoch 毫秒的半开区间 {@code [from, to)}。
+     * 数据库不可用时返回 {@code null}。
+     */
+    public List<BanCheckLog> query(String player, Long from, Long to, int limit, int offset) {
         try {
             int pageLimit = Math.max(1, Math.min(limit, MAX_PAGE));
             int pageOffset = Math.max(0, offset);
-            return mapper.selectList(new LambdaQueryWrapper<BanCheckLog>()
+            List<BanCheckLog> rows = mapper.selectList(conditions(player, from, to)
                     .orderByDesc(BanCheckLog::getId)
                     .last("LIMIT " + pageLimit + " OFFSET " + pageOffset));
+            // 展示时间由正确的 epoch（queried_at）实时重算，避免旧行写入时烧死的 UTC 值慢 8 小时。
+            for (BanCheckLog row : rows) {
+                row.setQueriedDatetime(BanCheckLog.format(row.getQueriedAt()));
+            }
+            return rows;
         } catch (Exception e) {
             log.warn("failed to query ban check log", e);
             return null;
         }
     }
 
-    /** 全表行数；数据库不可用时返回 0。表只追加，COUNT 开销可忽略。 */
+    /** 全表行数（无过滤条件的便捷重载）；数据库不可用时返回 0。表只追加，COUNT 开销可忽略。 */
     public long total() {
+        return count(null, null, null);
+    }
+
+    /** 符合条件（与 {@link #query(String, Long, Long, int, int)} 同款过滤）的行数；数据库不可用时返回 0。 */
+    public long count(String player, Long from, Long to) {
         try {
-            Long count = mapper.selectCount(null);
+            Long count = mapper.selectCount(conditions(player, from, to));
             return count == null ? 0L : count;
         } catch (Exception e) {
             log.warn("failed to count ban check log", e);
             return 0L;
         }
+    }
+
+    /** 组装玩家 ID / 查询时间区间的过滤条件，供查询与计数共用。 */
+    private LambdaQueryWrapper<BanCheckLog> conditions(String player, Long from, Long to) {
+        LambdaQueryWrapper<BanCheckLog> wrapper = new LambdaQueryWrapper<>();
+        if (player != null && !player.trim().isEmpty()) {
+            wrapper.like(BanCheckLog::getPlayer, player.trim());
+        }
+        if (from != null) {
+            wrapper.ge(BanCheckLog::getQueriedAt, from);
+        }
+        if (to != null) {
+            wrapper.lt(BanCheckLog::getQueriedAt, to);
+        }
+        return wrapper;
     }
 }

@@ -129,8 +129,11 @@
 
   function render(j) {
     lastCount = j.count || 0;
+    const limit = parseInt(document.getElementById('limit').value || '20', 10);
+    const total = j.total ?? 0;
+    const pages = Math.max(1, Math.ceil(total / limit));
     document.getElementById('meta').textContent =
-      '本页 ' + lastCount + ' 条 · 全表 ' + (j.total ?? 0) + ' 条 · offset ' + (j.offset ?? 0);
+      '总记录数 ' + total + ' · 总页数 ' + pages + ' · 本页 ' + lastCount + ' 条';
 
     if (!j.records || j.records.length === 0) {
       tbody.innerHTML = '<tr><td colspan="19" class="muted">没有匹配的记录</td></tr>';
@@ -139,8 +142,8 @@
     }
 
     document.getElementById('prev').disabled = offset <= 0;
-    document.getElementById('next').disabled = lastCount < parseInt(document.getElementById('limit').value || '20', 10);
-    document.getElementById('page').textContent = '第 ' + (offset / Math.max(1, parseInt(document.getElementById('limit').value || '20', 10)) + 1) + ' 页';
+    document.getElementById('next').disabled = lastCount < limit;
+    document.getElementById('page').textContent = '第 ' + (offset / Math.max(1, limit) + 1) + ' / ' + pages + ' 页';
   }
 
   function statOf(r, key) {
@@ -154,7 +157,7 @@
     return '<tr data-id="' + r.id + '">' +
       '<td>' + esc(r.id) + '</td>' +
       '<td>' + esc(r.epochMillis) + '</td>' +
-      '<td>' + esc(r.createDatetime || r.time) + '</td>' +
+      '<td>' + esc(r.time) + '</td>' +
       '<td>' + esc(r.botKeys) + '</td>' +
       '<td>' + esc(r.msgType) + '</td>' +
       '<td class="clip">' + esc(r.title) + '</td>' +

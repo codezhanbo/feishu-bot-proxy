@@ -21,6 +21,8 @@ public class Account {
     private String banStatus;
     /** 等级（手动维护，可为空）。 */
     private String level;
+    /** 平台：steam / kakao / console / xbox / psn；封禁查询按它选平台。旧行 null，按 steam 处理。 */
+    private String platform;
     /** 最后一次查询时间，格式 {@code yyyy-MM-dd HH:mm:ss}；从未查询过时为 null。 */
     private String lastCheckedAt;
     /** 总场次（对局数）；尚未查到过时为 null。 */
@@ -48,6 +50,14 @@ public class Account {
 
     public void setLevel(String level) {
         this.level = level;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
     }
 
     public String getLastCheckedAt() {

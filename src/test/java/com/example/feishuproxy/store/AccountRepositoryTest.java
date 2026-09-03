@@ -59,7 +59,7 @@ class AccountRepositoryTest {
         assertNull(loaded.getLastCheckedAt(), "从未查询过，最后查询时间为 null");
         assertNull(loaded.getTotalMatches());
 
-        repository.updateLevel("p1", "600");
+        repository.updateProfile("p1", "600", "steam");
         assertEquals("600", repository.find("p1").getLevel());
 
         repository.delete("p1");

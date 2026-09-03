@@ -8,11 +8,22 @@
 <style>
   .form { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   .form label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
-  .form input[type=text] { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
-  .form input:focus { outline:none; border-color:var(--accent); }
+  .form input[type=text], .form select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .form input:focus, .form select:focus { outline:none; border-color:var(--accent); }
   .form input:disabled { background:var(--bg, #f5f5f5); color:var(--muted); }
   .form-buttons { grid-column:1 / -1; display:flex; gap:10px; align-items:center; }
   #msg { min-height:18px; font-size:13px; color:var(--bad); }
+  .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:5px; }
+  .filters input, .filters select { padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:120px; }
+  .filters input:focus, .filters select:focus { outline:none; border-color:var(--accent); }
+  .filters button { padding:8px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .filters button.ghost { background:var(--card); color:var(--text); border:1px solid var(--line); }
+  .meta { margin:12px 2px; color:var(--muted); font-size:13px; }
+  .pager { display:flex; align-items:center; gap:12px; margin:12px 2px; }
+  .pager button { padding:7px 16px; border:1px solid var(--line); background:var(--card); border-radius:8px; cursor:pointer; }
+  .pager button:disabled { opacity:.4; cursor:default; }
+  .pager span { font-size:13px; color:var(--muted); }
 </style>
 </head>
 <body data-page="accounts">
@@ -31,9 +42,9 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>账号ID</th><th>封禁状态</th><th>等级</th><th>最后查询时间</th><th>总场次</th><th></th></tr>
+              <tr><th>账号ID</th><th>平台</th><th>封禁状态</th><th>等级</th><th>最后查询时间</th><th>总场次</th><th></th></tr>
             </thead>
-            <tbody id="tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+            <tbody id="tbody"><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -42,6 +53,15 @@
         <h2 id="form-title">添加账号</h2>
         <div class="form">
           <label>账号ID<input type="text" id="f-accountId" placeholder="玩家昵称"></label>
+          <label>平台
+            <select id="f-platform">
+              <option value="steam">steam</option>
+              <option value="kakao">kakao</option>
+              <option value="console">console</option>
+              <option value="xbox">xbox</option>
+              <option value="psn">psn</option>
+            </select>
+          </label>
           <label>等级（可选）<input type="text" id="f-level" placeholder="如 500"></label>
           <div class="form-buttons">
             <button class="primary" id="save">保存</button>
@@ -53,6 +73,19 @@
 
       <section class="panel">
         <h2>最近查询</h2>
+        <div class="filters" style="margin-bottom:12px;">
+          <label>玩家ID<input type="text" id="log-player" placeholder="模糊匹配"></label>
+          <label>创建时间<input type="date" id="log-date"></label>
+          <label>每页条数
+            <select id="log-limit">
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button id="log-query">查询</button>
+          <button id="log-reset" class="ghost">重置</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -61,12 +94,19 @@
             <tbody id="log-body"><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>
           </table>
         </div>
+        <div class="meta" id="log-meta"></div>
+        <div class="pager">
+          <button id="log-prev">上一页</button>
+          <span id="log-page"></span>
+          <button id="log-next">下一页</button>
+        </div>
       </section>
     </main>
   </div>
 <script>
   let accounts = [];
   let editing = null;   // 正在编辑的 accountId，null 表示新建
+  let logOffset = 0;    // 最近查询的分页偏移
 
   const $ = id => document.getElementById(id);
 
@@ -90,13 +130,43 @@
   }
 
   async function load() {
-    const [accountList, logList] = await Promise.all([
-      api('/console/accounts').catch(() => null),
-      api('/console/ban-logs?limit=20').catch(() => null),
-    ]);
+    await Promise.all([loadAccounts(), loadLogs()]);
+  }
+
+  async function loadAccounts() {
+    const accountList = await api('/console/accounts').catch(() => null);
     accounts = (accountList && accountList.accounts) || [];
     renderTable();
-    renderLogs((logList && logList.records) || []);
+  }
+
+  function todayStr() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  // 一个自然日对应的 [from, to) 半开区间（epoch 毫秒，本地时区）。空日期 => 不限时间。
+  function dayRange(dateStr) {
+    if (!dateStr) return { from: null, to: null };
+    const start = new Date(dateStr + 'T00:00:00');
+    return { from: start.getTime(), to: start.getTime() + 86400000 };
+  }
+
+  function buildLogParams() {
+    const p = new URLSearchParams();
+    const player = $('log-player').value.trim();
+    const range = dayRange($('log-date').value);
+    if (player) p.set('player', player);
+    if (range.from !== null) p.set('from', range.from);
+    if (range.to !== null) p.set('to', range.to);
+    p.set('limit', $('log-limit').value || '20');
+    p.set('offset', logOffset);
+    return p;
+  }
+
+  async function loadLogs() {
+    const logList = await api('/console/ban-logs?' + buildLogParams()).catch(() => null);
+    renderLogs(logList || {});
   }
 
   function statusBadge(s) {
@@ -108,41 +178,53 @@
   function renderTable() {
     const tbody = $('tbody');
     if (!accounts.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">还没有账号，点「添加账号」</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">还没有账号，点「添加账号」</td></tr>';
       return;
     }
     tbody.innerHTML = accounts.map(a =>
       '<tr>' +
       '<td>' + esc(a.accountId) + '</td>' +
+      '<td>' + esc(a.platform || 'steam') + '</td>' +
       '<td>' + statusBadge(a.banStatus) + '</td>' +
       '<td>' + esc(a.level || '—') + '</td>' +
       '<td>' + esc(a.lastCheckedAt || '—') + '</td>' +
       '<td>' + (a.totalMatches == null ? '—' : esc(a.totalMatches)) + '</td>' +
-      '<td><button class="ghost" data-edit="' + esc(a.accountId) + '">编辑</button> ' +
+      '<td><button class="ghost" data-check="' + esc(a.accountId) + '">查询</button> ' +
+      '<button class="ghost" data-edit="' + esc(a.accountId) + '">编辑</button> ' +
       '<button class="danger" data-del="' + esc(a.accountId) + '">删除</button></td>' +
       '</tr>').join('');
   }
 
-  function renderLogs(records) {
+  function renderLogs(j) {
+    const records = j.records || [];
     const tbody = $('log-body');
     if (!records.length) {
       tbody.innerHTML = '<tr><td colspan="7" class="muted">还没有查询记录</td></tr>';
-      return;
+    } else {
+      tbody.innerHTML = records.map(r => {
+        const ok = r.success
+          ? '<span class="badge ok">成功</span>'
+          : '<span class="badge bad">失败</span>';
+        return '<tr>' +
+          '<td>' + esc(r.queriedDatetime || '—') + '</td>' +
+          '<td>' + esc(r.player) + '</td>' +
+          '<td>' + esc(r.platform) + '</td>' +
+          '<td>' + ok + '</td>' +
+          '<td>' + esc(r.banStatus || '—') + '</td>' +
+          '<td>' + esc(r.level || '—') + '</td>' +
+          '<td>' + (r.totalMatches == null ? '—' : esc(r.totalMatches)) + '</td>' +
+          '</tr>';
+      }).join('');
     }
-    tbody.innerHTML = records.map(r => {
-      const ok = r.success
-        ? '<span class="badge ok">成功</span>'
-        : '<span class="badge bad">失败</span>';
-      return '<tr>' +
-        '<td>' + esc(r.queriedDatetime || '—') + '</td>' +
-        '<td>' + esc(r.player) + '</td>' +
-        '<td>' + esc(r.platform) + '</td>' +
-        '<td>' + ok + '</td>' +
-        '<td>' + esc(r.banStatus || '—') + '</td>' +
-        '<td>' + esc(r.level || '—') + '</td>' +
-        '<td>' + (r.totalMatches == null ? '—' : esc(r.totalMatches)) + '</td>' +
-        '</tr>';
-    }).join('');
+
+    const limit = parseInt($('log-limit').value || '20', 10);
+    const total = j.total ?? 0;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const count = j.count ?? records.length;
+    $('log-meta').textContent = '总记录数 ' + total + ' · 总页数 ' + pages + ' · 本页 ' + count + ' 条';
+    $('log-prev').disabled = logOffset <= 0;
+    $('log-next').disabled = count < limit;
+    $('log-page').textContent = '第 ' + (logOffset / Math.max(1, limit) + 1) + ' / ' + pages + ' 页';
   }
 
   function openForm(account) {
@@ -152,6 +234,7 @@
     $('f-accountId').value = account ? account.accountId : '';
     $('f-accountId').disabled = !!account;   // 主键不可改
     $('f-level').value = account ? (account.level || '') : '';
+    $('f-platform').value = account ? (account.platform || 'steam') : 'steam';
     showMsg('');
     $('form-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -165,23 +248,24 @@
   async function save() {
     const accountId = $('f-accountId').value.trim();
     const level = $('f-level').value.trim();
+    const platform = $('f-platform').value;
     if (!accountId) { showMsg('请输入账号ID'); return; }
     try {
       if (editing) {
         await api('/console/accounts/' + encodeURIComponent(editing), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ level }),
+          body: JSON.stringify({ level, platform }),
         });
       } else {
         await api('/console/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId, level }),
+          body: JSON.stringify({ accountId, level, platform }),
         });
       }
       closeForm();
-      await load();
+      await loadAccounts();
     } catch (e) {
       showMsg(e.message);
     }
@@ -191,16 +275,35 @@
     if (!confirm('确认删除账号 ' + accountId + ' ？')) return;
     try {
       await api('/console/accounts/' + encodeURIComponent(accountId), { method: 'DELETE' });
-      await load();
+      await loadAccounts();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function checkAccount(accountId) {
+    const account = accounts.find(a => a.accountId === accountId);
+    const platform = account ? (account.platform || 'steam') : 'steam';
+    try {
+      const r = await api('/console/ban-check?player=' + encodeURIComponent(accountId) + '&platform=' + encodeURIComponent(platform));
+      if (r.success) {
+        await loadAccounts();
+        alert('已更新 ' + accountId + '：' + (r.banStatus || '未封禁') + (r.level ? ' · ' + r.level : ''));
+      } else {
+        alert('查询失败：' + (r.error || '未知错误'));
+      }
     } catch (e) {
       alert(e.message);
     }
   }
 
   $('tbody').addEventListener('click', e => {
+    const checkBtn = e.target.closest('[data-check]');
     const editBtn = e.target.closest('[data-edit]');
     const delBtn = e.target.closest('[data-del]');
-    if (editBtn) {
+    if (checkBtn) {
+      checkAccount(checkBtn.getAttribute('data-check'));
+    } else if (editBtn) {
       const accountId = editBtn.getAttribute('data-edit');
       const account = accounts.find(a => a.accountId === accountId);
       if (account) openForm(account);
@@ -211,7 +314,25 @@
   $('new').addEventListener('click', () => openForm(null));
   $('cancel').addEventListener('click', closeForm);
   $('save').addEventListener('click', save);
+  $('log-query').addEventListener('click', () => { logOffset = 0; loadLogs(); });
+  $('log-reset').addEventListener('click', () => {
+    $('log-player').value = '';
+    $('log-date').value = todayStr();
+    $('log-limit').value = '20';
+    logOffset = 0;
+    loadLogs();
+  });
+  $('log-prev').addEventListener('click', () => {
+    logOffset = Math.max(0, logOffset - parseInt($('log-limit').value || '20', 10));
+    loadLogs();
+  });
+  $('log-next').addEventListener('click', () => {
+    logOffset += parseInt($('log-limit').value || '20', 10);
+    loadLogs();
+  });
+  $('log-limit').addEventListener('change', () => { logOffset = 0; loadLogs(); });
 
+  $('log-date').value = todayStr();
   load();
 </script>
 <script src="/layout.js"></script>
