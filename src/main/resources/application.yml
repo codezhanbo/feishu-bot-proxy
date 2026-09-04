@@ -1,6 +1,10 @@
 server:
   # 优先跟随 Render 注入的 PORT 环境变量；本地没设 PORT 时回落 8080。
   port: ${PORT:8080}
+  tomcat:
+    # 免费档内存紧，压工作线程数以省原生线程栈；本代理流量小，50 足够。
+    threads:
+      max: 50
   servlet:
     session:
       timeout: 8h            # 后台登录会话时长
