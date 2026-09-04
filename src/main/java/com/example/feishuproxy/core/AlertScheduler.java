@@ -147,6 +147,7 @@ public class AlertScheduler {
      * 发送一条告警：把文案发往规则指定的目标 bot，并写一条告警事件日志（成功或失败都写），
      * 发送的告警同时按普通消息留档到 message_log。返回发送结果；
      * 目标 bot 未知/停用、或组包失败时返回 null（此时已写一条 send_code=-1 的日志）。
+     * 若发送本身抛了未预期的运行时异常，仍先落一条 send_code=-1 的日志再向上抛。
      */
     private SendResult sendAlert(AlertRule rule, long idleMinutes) {
         String text = "[feishu-bot-proxy] 告警：机器人 " + rule.getBotKey()
@@ -183,7 +184,16 @@ public class AlertScheduler {
             return null;
         }
 
-        SendResult result = sender.send(rule.getAlertBotKey(), alertBot, body, payload, "text", CLIENT_IP);
+        SendResult result;
+        try {
+            result = sender.send(rule.getAlertBotKey(), alertBot, body, payload, "text", CLIENT_IP);
+        } catch (RuntimeException e) {
+            // 发送环节抛了未预期异常也要留痕：先落一条 send_code=-1 的日志再向上抛，
+            // 避免「告警其实尝试过、但日志表里毫无记录」。
+            log.warn("alert rule {} send threw unexpectedly", rule.getId(), e);
+            recordAlert(rule, idleMinutes, message, -1, "send failed: " + e);
+            throw e;
+        }
         recordAlert(rule, idleMinutes, message, result.getCode(), result.getMsg());
         // 和其它消息一样留档：告警会出现在 /console/logs，方便事后确认「到底发出去没有」。
         messageLog.record(Collections.singletonList(rule.getAlertBotKey()), body, payload, CLIENT_IP,

@@ -226,4 +226,24 @@ class AlertSchedulerTest {
         assertEquals(30, captor.getValue().getIdleMinutes(), "模拟的 idle 时长等于阈值");
         assertEquals("ops-group", captor.getValue().getAlertBotKey());
     }
+
+    @Test
+    void recordsAlertEvenWhenSendThrowsUnexpectedly() {
+        AlertRule r = rule(1L, true, 30, 30, null);
+        when(rules.findAll()).thenReturn(Collections.singletonList(r));
+        when(messageLog.lastCreatedAt("dev-group")).thenReturn(System.currentTimeMillis() - 40 * MINUTE);
+        when(registry.get("ops-group")).thenReturn(alertBot());
+        when(sender.send(eq("ops-group"), any(FeishuProperties.Bot.class), any(byte[].class),
+                any(JsonNode.class), eq("text"), eq("alert-scheduler")))
+                .thenThrow(new IllegalStateException("boom"));
+
+        scheduler.check();
+
+        // 发送环节抛异常，也要落一条 send_code=-1 的告警日志，且不推进冷却状态。
+        ArgumentCaptor<AlertLog> captor = ArgumentCaptor.forClass(AlertLog.class);
+        verify(alertLog).insert(captor.capture());
+        assertEquals(-1, captor.getValue().getSendCode());
+        assertTrue(captor.getValue().getSendMsg().contains("boom"));
+        verify(rules, never()).setLastAlertAt(anyLong(), any());
+    }
 }
